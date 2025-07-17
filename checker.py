@@ -3,6 +3,9 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 import os
 import logging
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # CONFIG
 USERNAME = "C399"
@@ -18,6 +21,29 @@ os.makedirs(log_dir, exist_ok=True)
 today_str = datetime.today().strftime("%Y-%m-%d")
 log_path = os.path.join(log_dir, f"tee_times_{today_str}.log")
 logging.basicConfig(filename=log_path, level=logging.INFO, format="%(asctime)s - %(message)s")
+
+# Email setup
+GMAIL_USER = os.getenv("GMAIL_USER")
+GMAIL_PASS = os.getenv("GMAIL_PASS")
+RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL") or GMAIL_USER
+
+
+def send_email(subject, body):
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = GMAIL_USER
+        msg["To"] = RECIPIENT_EMAIL
+        msg["Subject"] = subject
+
+        msg.attach(MIMEText(body, "plain"))
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(GMAIL_USER, GMAIL_PASS)
+            server.send_message(msg)
+            logging.info("📧 Email sent!")
+    except Exception as e:
+        logging.error(f"❌ Failed to send email: {e}")
+
 
 def check_tee_times(date_str, start_str, end_str):
     start_time = datetime.strptime(start_str, "%I:%M %p")
@@ -93,6 +119,7 @@ def check_tee_times(date_str, start_str, end_str):
                 logging.info("✅ New tee times found:\n" + "\n".join(new_times))
                 with open(LOG_FILE, "w") as f:
                     f.write("\n".join(found))
+                send_email("New Tee Times Available", "\n".join(new_times))
                 return new_times
             else:
                 logging.info("🟢 No new tee times found.")
@@ -101,5 +128,3 @@ def check_tee_times(date_str, start_str, end_str):
         except Exception as e:
             logging.error(f"💥 Error: {e}")
             return ["A timeout occurred. The page or element took too long to load."]
-        finally:
-            browser.close()
