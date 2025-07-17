@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 pip install -r requirements.txt
-playwright install
+PLAYWRIGHT_BROWSERS_PATH=0 playwright install
