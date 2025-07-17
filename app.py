@@ -1,6 +1,13 @@
 from fastapi import FastAPI, Query
 from checker import check_tee_times
 import uvicorn
+import subprocess
+
+# Install Playwright browser at runtime
+try:
+    subprocess.run(["playwright", "install", "chromium"], check=True)
+except Exception as e:
+    print(f"Failed to install Playwright at runtime: {e}")
 
 app = FastAPI()
 
