@@ -3,7 +3,7 @@ services:
     name: tee-time-api
     env: python
     plan: free
-    buildCommand: ./render-build.sh
+    buildCommand: pip install -r requirements.txt && playwright install  # rebuild
     startCommand: python app.py
     envVars:
       - key: PYTHON_VERSION
