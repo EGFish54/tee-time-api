@@ -50,7 +50,7 @@ def check_tee_times(date_str, start_str, end_str):
     end_time = datetime.strptime(end_str, "%I:%M %p")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, args=["--nosandbox"])
         context = browser.new_context()
         page = context.new_page()
 
