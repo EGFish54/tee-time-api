@@ -2,6 +2,8 @@ from fastapi import FastAPI, Query
 from checker import check_tee_times
 import uvicorn
 import subprocess
+import os
+import json
 
 # Install Playwright browser at runtime
 try:
@@ -9,16 +11,38 @@ try:
 except Exception as e:
     print(f"Failed to install Playwright at runtime: {e}")
 
+CONFIG_FILE = "config.json"
+
+# Ensure config.json exists with defaults
+if not os.path.exists(CONFIG_FILE):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump({
+            "date": "07/23/2025",
+            "start": "08:00 AM",
+            "end": "09:00 AM"
+        }, f)
+
 app = FastAPI()
 
-@app.get("/check")
-def check(
+@app.get("/set")
+def set_time(
     date: str = Query(..., description="Format: MM/DD/YYYY"),
     start: str = Query(..., description="Format: HH:MM AM/PM"),
     end: str = Query(..., description="Format: HH:MM AM/PM")
 ):
     try:
-        results = check_tee_times(date, start, end)
+        with open(CONFIG_FILE, "w") as f:
+            json.dump({"date": date, "start": start, "end": end}, f)
+        return {"message": "Time window updated successfully"}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/check")
+def check():
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            config = json.load(f)
+        results = check_tee_times(config["date"], config["start"], config["end"])
         return {"results": results}
     except Exception as e:
         return {"error": str(e)}
