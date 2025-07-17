@@ -27,7 +27,6 @@ GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_PASS = os.getenv("GMAIL_PASS")
 RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL") or GMAIL_USER
 
-
 def send_email(subject, body):
     try:
         msg = MIMEMultipart()
@@ -44,13 +43,12 @@ def send_email(subject, body):
     except Exception as e:
         logging.error(f"❌ Failed to send email: {e}")
 
-
 def check_tee_times(date_str, start_str, end_str):
     start_time = datetime.strptime(start_str, "%I:%M %p")
     end_time = datetime.strptime(end_str, "%I:%M %p")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=["--nosandbox"])
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
         context = browser.new_context()
         page = context.new_page()
 
@@ -128,3 +126,5 @@ def check_tee_times(date_str, start_str, end_str):
         except Exception as e:
             logging.error(f"💥 Error: {e}")
             return ["A timeout occurred. The page or element took too long to load."]
+        finally:
+            browser.close()
