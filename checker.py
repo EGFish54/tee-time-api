@@ -8,6 +8,9 @@ import json
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+cached_results = []
+
+
 # CONFIG
 USERNAME = "C399"
 PASSWORD = "Goblue8952"
