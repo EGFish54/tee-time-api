@@ -136,3 +136,12 @@ def check_tee_times(date_str, start_str, end_str):
             return ["A timeout occurred. The page or element took too long to load."]
         finally:
             browser.close()
+
+            
+def get_cached_tee_times():
+    if os.path.exists("available_tee_times.txt"):
+        with open("available_tee_times.txt", "r") as f:
+            lines = [line.strip() for line in f.readlines()]
+            return lines if lines else ["No new tee times"]
+    else:
+        return ["No cached tee times found"]

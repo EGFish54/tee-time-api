@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Query
-from checker import check_tee_times
+from checker import check_tee_times, get_cached_tee_times
 import uvicorn
 import subprocess
 import os
@@ -42,9 +42,7 @@ def set_time(
 @app.get("/check")
 def check():
     try:
-        with open(CONFIG_FILE, "r") as f:
-            config = json.load(f)
-        results = check_tee_times(config["date"], config["start"], config["end"])
+        results = get_cached_tee_times()
         return {"results": results}
     except Exception as e:
         return {"error": str(e)}
