@@ -4,6 +4,8 @@ import uvicorn
 import subprocess
 import os
 import json
+import threading
+from scraper import run_scraper  # 👈 Make sure scraper.py has this function
 
 # Install Playwright browser at runtime
 try:
@@ -12,7 +14,6 @@ except Exception as e:
     print(f"Failed to install Playwright at runtime: {e}")
 
 CONFIG_FILE = "config.json"
-CACHE_FILE = "cached_results.json"
 
 # Ensure config.json exists with defaults
 if not os.path.exists(CONFIG_FILE):
@@ -41,32 +42,19 @@ def set_time(
 @app.get("/check")
 def check():
     try:
-        with open("cached_results.json", "r") as f:
-            data = json.load(f)
-        return data  # already has {"results": [...]}
+        with open(CONFIG_FILE, "r") as f:
+            config = json.load(f)
+        results = check_tee_times(config["date"], config["start"], config["end"])
+        return {"results": results}
     except Exception as e:
         return {"error": str(e)}
 
-@app.get("/cached")
-def cached():
-    try:
-        if not os.path.exists(CACHE_FILE):
-            return {"results": ["No cached results available yet."]}
-        with open(CACHE_FILE, "r") as f:
-            data = json.load(f)
-        return {"results": data.get("results", ["No cached results found"])}
-    except Exception as e:
-        return {"error": str(e)}
+@app.get("/run-scraper")
+def run_scraper_background():
+    def scraper_thread():
+        run_scraper()
+    threading.Thread(target=scraper_thread).start()
+    return {"message": "Scraper started in background"}
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
-
-
-@app.get("/run-scraper")
-def run_scraper():
-    try:
-        from scraper import run_scraper
-        run_scraper()
-        return {"message": "Scraper executed successfully"}
-    except Exception as e:
-        return {"error": str(e)}
