@@ -12,6 +12,7 @@ except Exception as e:
     print(f"Failed to install Playwright at runtime: {e}")
 
 CONFIG_FILE = "config.json"
+CACHE_FILE = "cached_results.json"
 
 # Ensure config.json exists with defaults
 if not os.path.exists(CONFIG_FILE):
@@ -40,10 +41,20 @@ def set_time(
 @app.get("/check")
 def check():
     try:
-        with open(CONFIG_FILE, "r") as f:
-            config = json.load(f)
-        results = check_tee_times(config["date"], config["start"], config["end"])
-        return {"results": results}
+        with open("cached_results.json", "r") as f:
+            data = json.load(f)
+        return data  # already has {"results": [...]}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/cached")
+def cached():
+    try:
+        if not os.path.exists(CACHE_FILE):
+            return {"results": ["No cached results available yet."]}
+        with open(CACHE_FILE, "r") as f:
+            data = json.load(f)
+        return {"results": data.get("results", ["No cached results found"])}
     except Exception as e:
         return {"error": str(e)}
 

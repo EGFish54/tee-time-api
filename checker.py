@@ -4,6 +4,7 @@ from datetime import datetime
 import os
 import logging
 import smtplib
+import json
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -14,6 +15,7 @@ LOGIN_URL = "https://www.prestonwood.com/members-login"
 TEE_SHEET_URL = "https://www.prestonwood.com/golf/tee-times-43.html"
 CHECK_DAY = "23"
 LOG_FILE = "available_tee_times.txt"
+CACHE_FILE = "cached_results.json"
 
 # Logging setup
 log_dir = "logs"
@@ -54,18 +56,18 @@ def check_tee_times(date_str, start_str, end_str):
 
         try:
             logging.info("🔐 Logging in via Playwright")
-            page.goto(LOGIN_URL)
+            page.goto(LOGIN_URL, timeout=30000)
             page.fill("#lgUserName", USERNAME)
             page.fill("#lgPassword", PASSWORD)
             page.click("#lgLoginButton")
-            page.wait_for_url(lambda url: url != LOGIN_URL)
+            page.wait_for_url(lambda url: url != LOGIN_URL, timeout=30000)
 
             logging.info("➡️ Navigating to tee times")
-            page.goto(TEE_SHEET_URL)
+            page.goto(TEE_SHEET_URL, timeout=30000)
             frame = page.frame(name="ifrforetees")
 
             logging.info(f"📅 Selecting date: {date_str}")
-            frame.wait_for_selector("#member_select_calendar1")
+            frame.wait_for_selector("#member_select_calendar1", timeout=30000)
             date_elements = frame.query_selector_all("#member_select_calendar1 a.ui-state-default")
             target = next((el for el in date_elements if el.inner_text().strip() == CHECK_DAY), None)
 
@@ -73,7 +75,7 @@ def check_tee_times(date_str, start_str, end_str):
                 return ["Date not found"]
 
             target.click()
-            frame.wait_for_timeout(3000)
+            frame.wait_for_timeout(5000)
 
             # Set course to ALL
             dropdowns = frame.query_selector_all("select")
@@ -82,7 +84,7 @@ def check_tee_times(date_str, start_str, end_str):
                     select.select_option(label="-ALL-")
                     break
 
-            frame.wait_for_timeout(3000)
+            frame.wait_for_timeout(5000)
             soup = BeautifulSoup(frame.content(), "html.parser")
             tee_sheet = soup.find("div", class_="member_sheet_table")
             if not tee_sheet:
@@ -118,10 +120,16 @@ def check_tee_times(date_str, start_str, end_str):
                 with open(LOG_FILE, "w") as f:
                     f.write("\n".join(found))
                 send_email("New Tee Times Available", "\n".join(new_times))
-                return new_times
+                results = new_times
             else:
                 logging.info("🟢 No new tee times found.")
-                return ["No new tee times"]
+                results = ["No new tee times"]
+
+            # ✅ Save to cache file
+            with open(CACHE_FILE, "w") as cache_file:
+                json.dump(results, cache_file)
+
+            return results
 
         except Exception as e:
             logging.error(f"💥 Error: {e}")
