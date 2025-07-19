@@ -60,3 +60,13 @@ def cached():
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+
+
+@app.get("/run-scraper")
+def run_scraper():
+    try:
+        from scraper import run_scraper
+        run_scraper()
+        return {"message": "Scraper executed successfully"}
+    except Exception as e:
+        return {"error": str(e)}
