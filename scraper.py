@@ -1,24 +1,32 @@
-from checker import check_tee_times, cached_results
-import json
 import os
+import json
+import logging
+from checker import check_tee_times, cached_results
 
 CONFIG_FILE = "config.json"
 
-def run_scraper(date=None, start=None, end=None):
-    try:
-        if not date or not start or not end:
-            if os.path.exists(CONFIG_FILE):
-                with open(CONFIG_FILE, "r") as f:
-                    config = json.load(f)
-                    date = config["date"]
-                    start = config["start"]
-                    end = config["end"]
-            else:
-                print("❌ No config file and no parameters provided.")
-                return
+# In-memory config as fallback if reading config.json fails
+in_memory_config = {
+    "date": "07/23/2025",
+    "start": "08:00 AM",
+    "end": "09:00 AM"
+}
 
-        results = check_tee_times(date, start, end)
-        cached_results.clear()
-        cached_results.extend(results)
+# Try to load from config file into in-memory config
+if os.path.exists(CONFIG_FILE):
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            in_memory_config = json.load(f)
     except Exception as e:
-        print(f"Scraper error: {e}")
+        logging.error(f"Failed to read config.json: {e}")
+
+
+def run_scraper():
+    global cached_results
+    logging.info("Starting scraper with config: %s", in_memory_config)
+    date = in_memory_config["date"]
+    start = in_memory_config["start"]
+    end = in_memory_config["end"]
+    results = check_tee_times(date, start, end)
+    cached_results = results
+    logging.info("Scraper results cached.")
