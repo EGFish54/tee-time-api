@@ -62,4 +62,13 @@ if __name__ == "__main__":
 @app.get("/")
 def root():
     return {"status": "Tee Time API is live"}
+
+@app.get("/get")
+def get_time_window():
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            config = json.load(f)
+        return {"current_config": config}
+    except Exception as e:
+        return {"error": str(e)}
     
