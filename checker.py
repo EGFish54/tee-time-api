@@ -16,7 +16,8 @@ TEE_SHEET_URL = "https://www.prestonwood.com/golf/tee-times-43.html"
 # CHECK_DAY will be dynamically set from date_str now
 LOG_FILE = "available_tee_times.txt"
 CACHE_FILE = "cached_results.json"
-SCREENSHOT_DIR = "screenshots" # Directory to save screenshots
+# We'll build the full path to screenshots in the take_screenshot function
+# SCREENSHOT_DIR = "screenshots" # This line is no longer strictly needed but doesn't hurt
 
 # Logging setup
 log_dir = "logs"
@@ -25,8 +26,8 @@ today_str = datetime.today().strftime("%Y-%m-%d")
 log_path = os.path.join(log_dir, f"tee_times_{today_str}.log")
 logging.basicConfig(filename=log_path, level=logging.INFO, format="%(asctime)s - %(message)s")
 
-# Ensure screenshot directory exists
-os.makedirs(SCREENSHOT_DIR, exist_ok=True)
+# Ensure screenshot directory exists - this will now create /tmp/screenshots/
+# os.makedirs(SCREENSHOT_DIR, exist_ok=True) # This line is replaced by logic in take_screenshot
 
 # Email setup
 GMAIL_USER = os.getenv("GMAIL_USER")
@@ -51,7 +52,10 @@ def send_email(subject, body):
 
 def take_screenshot(page, name):
     try:
-        screenshot_path = os.path.join(SCREENSHOT_DIR, f"{name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+        # Save screenshots to a writable temporary directory
+        temp_screenshot_dir = os.path.join("/tmp", "screenshots")
+        os.makedirs(temp_screenshot_dir, exist_ok=True) # Ensure /tmp/screenshots exists
+        screenshot_path = os.path.join(temp_screenshot_dir, f"{name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
         page.screenshot(path=screenshot_path)
         logging.info(f"📸 Screenshot saved: {screenshot_path}")
     except Exception as e:
