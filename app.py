@@ -50,7 +50,7 @@ def set_time(
         with open(CONFIG_FILE, "w") as f:
             json.dump(in_memory_config, f)
 
-        return {"message": "Time window updated successfully"}
+        return {"message": "Time window updated successfully. Run /run-scraper to apply changes."}
     except Exception as e:
         return {"error": str(e)}
 
@@ -61,6 +61,7 @@ def get_time_window():
 @app.get("/check")
 def check():
     try:
+        # This will now read from cached_results.json, which is updated by the scraper
         results = get_cached_tee_times()
         return {"results": results}
     except Exception as e:
@@ -69,7 +70,11 @@ def check():
 @app.get("/run-scraper")
 def run_scraper_background():
     def scraper_thread():
+        # The scraper will read the latest config from config.json
+        # and checker.py will write results to cached_results.json
         run_scraper(in_memory_config["date"], in_memory_config["start"], in_memory_config["end"])
+    
+    # Start the scraper in a non-blocking thread
     threading.Thread(target=scraper_thread).start()
     return {"message": "Scraper started in background"}
 

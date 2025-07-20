@@ -8,15 +8,12 @@ import json
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-cached_results = []
-
-
 # CONFIG
 USERNAME = "C399"
 PASSWORD = "Goblue8952"
 LOGIN_URL = "https://www.prestonwood.com/members-login"
 TEE_SHEET_URL = "https://www.prestonwood.com/golf/tee-times-43.html"
-CHECK_DAY = "23"
+CHECK_DAY = "23" # This should ideally come from the config, not hardcoded. For now, it matches your config.json which specifies July 23, 2025 or July 24, 2025.
 LOG_FILE = "available_tee_times.txt"
 CACHE_FILE = "cached_results.json"
 
@@ -52,6 +49,14 @@ def check_tee_times(date_str, start_str, end_str):
     start_time = datetime.strptime(start_str, "%I:%M %p")
     end_time = datetime.strptime(end_str, "%I:%M %p")
 
+    # Extract day for CHECK_DAY from date_str
+    try:
+        date_obj = datetime.strptime(date_str, "%m/%d/%Y")
+        day_for_selection = str(date_obj.day)
+    except ValueError:
+        logging.error(f"Invalid date format: {date_str}. Using default CHECK_DAY.")
+        day_for_selection = CHECK_DAY # Fallback to hardcoded if date_str is bad
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
         context = browser.new_context()
@@ -69,13 +74,16 @@ def check_tee_times(date_str, start_str, end_str):
             page.goto(TEE_SHEET_URL, timeout=30000)
             frame = page.frame(name="ifrforetees")
 
-            logging.info(f"📅 Selecting date: {date_str}")
+            logging.info(f"📅 Selecting date: {date_str} (Day: {day_for_selection})")
             frame.wait_for_selector("#member_select_calendar1", timeout=30000)
             date_elements = frame.query_selector_all("#member_select_calendar1 a.ui-state-default")
-            target = next((el for el in date_elements if el.inner_text().strip() == CHECK_DAY), None)
+            target = next((el for el in date_elements if el.inner_text().strip() == day_for_selection), None)
 
             if not target:
-                return ["Date not found"]
+                results = ["Date not found or invalid day selected"]
+                with open(CACHE_FILE, "w") as cache_file:
+                    json.dump({"results": results}, cache_file)
+                return results
 
             target.click()
             frame.wait_for_timeout(5000)
@@ -91,7 +99,10 @@ def check_tee_times(date_str, start_str, end_str):
             soup = BeautifulSoup(frame.content(), "html.parser")
             tee_sheet = soup.find("div", class_="member_sheet_table")
             if not tee_sheet:
-                return ["Tee sheet not found"]
+                results = ["Tee sheet not found"]
+                with open(CACHE_FILE, "w") as cache_file:
+                    json.dump({"results": results}, cache_file)
+                return results
 
             found = []
             for row in tee_sheet.find_all("div", class_="rwdTr"):
@@ -110,41 +121,65 @@ def check_tee_times(date_str, start_str, end_str):
                     except:
                         continue
 
-            # Log and return
-            previous = []
-            if os.path.exists(LOG_FILE):
-                with open(LOG_FILE, "r") as f:
-                    previous = [line.strip() for line in f.readlines()]
+            # Log and update cache/email
+            previous_found = []
+            if os.path.exists(CACHE_FILE):
+                try:
+                    with open(CACHE_FILE, "r") as f:
+                        previous_data = json.load(f)
+                        previous_found = previous_data.get("results", [])
+                except json.JSONDecodeError:
+                    logging.warning(f"Malformed {CACHE_FILE}, starting fresh.")
+                    previous_found = []
+            
+            # Filter out "No new tee times" if actual times were found in previous_found
+            if "No new tee times" in previous_found and len(previous_found) > 1:
+                previous_found = [item for item in previous_found if item != "No new tee times"]
 
-            new_times = [t for t in found if t not in previous]
+
+            new_times = [t for t in found if t not in previous_found]
+
+            # Determine what to store as current_results
+            if found:
+                current_results = found
+            else:
+                current_results = ["No new tee times"]
+
+            # Save the current state (found tee times or "No new tee times") to CACHE_FILE
+            with open(CACHE_FILE, "w") as cache_file:
+                json.dump({"results": current_results}, cache_file)
 
             if new_times:
                 logging.info("✅ New tee times found:\n" + "\n".join(new_times))
-                with open(LOG_FILE, "w") as f:
-                    f.write("\n".join(found))
+                # This LOG_FILE is now primarily for historical logging, not the source for /check
+                [cite_start]with open(LOG_FILE, "w") as f: # [cite: 1]
+                    [cite_start]f.write("\n".join(found)) # [cite: 1]
                 send_email("New Tee Times Available", "\n".join(new_times))
-                results = new_times
+                return new_times
             else:
                 logging.info("🟢 No new tee times found.")
-                results = ["No new tee times"]
-
-            # ✅ Save to cache file
-            with open(CACHE_FILE, "w") as cache_file:
-                json.dump(results, cache_file)
-
-            return results
+                # If no new times, but there were previously found times that are still there,
+                # we return "No new tee times" but the cache (current_results) holds the actual found times.
+                return ["No new tee times"]
 
         except Exception as e:
             logging.error(f"💥 Error: {e}")
-            return ["A timeout occurred. The page or element took too long to load."]
+            error_message = f"A timeout occurred or another error: {e}"
+            # Still attempt to write an error state to the cache
+            with open(CACHE_FILE, "w") as cache_file:
+                json.dump({"results": [error_message]}, cache_file)
+            return [error_message]
         finally:
             browser.close()
 
-            
 def get_cached_tee_times():
-    if os.path.exists("available_tee_times.txt"):
-        with open("available_tee_times.txt", "r") as f:
-            lines = [line.strip() for line in f.readlines()]
-            return lines if lines else ["No new tee times"]
+    # Read directly from cached_results.json
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, "r") as f:
+                data = json.load(f)
+                return data.get("results", ["No cached tee times found or error in cache file."])
+        except json.JSONDecodeError:
+            return ["Error reading cached_results.json, file might be corrupted."]
     else:
-        return ["No cached tee times found"]
+        return ["No cached tee times found (cache file does not exist)."]
