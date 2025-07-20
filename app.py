@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Query
+from fastapi.staticfiles import StaticFiles # ADD THIS LINE
 from checker import get_cached_tee_times
 import uvicorn
 import subprocess
@@ -38,44 +39,49 @@ if os.path.exists(RUNTIME_CONFIG_FILE):
     try:
         with open(RUNTIME_CONFIG_FILE, "r") as f:
             loaded_config = json.load(f)
-            in_memory_config.update(loaded_config)
+            in_memory_config.update(loaded_config) # Update defaults with saved config
             logging.info(f"Loaded config from {RUNTIME_CONFIG_FILE}: {in_memory_config}")
+    except json.JSONDecodeError:
+        logging.warning(f"Error decoding JSON from {RUNTIME_CONFIG_FILE}. Using default config.")
     except Exception as e:
-        logging.error(f"Failed to load runtime config from file {RUNTIME_CONFIG_FILE}: {e}")
-else:
-    logging.info(f"No {RUNTIME_CONFIG_FILE} found, using default config: {in_memory_config}")
+        logging.error(f"Failed to load runtime config from {RUNTIME_CONFIG_FILE}: {e}. Using default config.")
 
 
 app = FastAPI()
+
+# ADD THIS BLOCK AFTER app = FastAPI()
+# Serve static files from the 'static' directory
+app.mount("/static", StaticFiles(directory="static", html=True), name="static")
+
 
 @app.get("/")
 def root():
     return {"status": "Tee Time API is live"}
 
-@app.get("/set")
-def set_time(
-    date: str = Query(..., description="Format: MM/DD/YYYY"),
-    start: str = Query(..., description="Format: HH:MM AM/PM"),
-    end: str = Query(..., description="Format: HH:MM AM/PM")
-):
-    try:
-        # Update in memory
-        in_memory_config["date"] = date
-        in_memory_config["start"] = start
-        in_memory_config["end"] = end
 
-        # Save to runtime file (this will persist for the current Render instance)
+@app.get("/set")
+def set_config(date: str = Query(...), start: str = Query(...), end: str = Query(...)):
+    global in_memory_config # Declare that we intend to modify the global variable
+
+    # Update the in-memory config
+    in_memory_config["date"] = date
+    in_memory_config["start"] = start
+    in_memory_config["end"] = end
+
+    # Also save to a file for persistence across app restarts (in same ephemeral container)
+    try:
         with open(RUNTIME_CONFIG_FILE, "w") as f:
             json.dump(in_memory_config, f)
-        logging.info(f"Config updated and saved to {RUNTIME_CONFIG_FILE}: {in_memory_config}")
-        return {"message": "Time window updated successfully"}
+        logging.info(f"Runtime config updated and saved to file: {in_memory_config}")
+        return {"message": "Configuration updated successfully", "current_config": in_memory_config}
     except Exception as e:
-        logging.error(f"Error setting time window: {e}")
-        return {"error": str(e)}
+        logging.error(f"Failed to save runtime config to file: {e}")
+        return {"error": f"Configuration updated in memory but failed to save to file: {e}", "current_config": in_memory_config}
+
 
 @app.get("/get")
-def get_time_window():
-    # Try to load from runtime file first for the most current state
+def get_config():
+    # Prioritize loading from file to ensure we get the latest saved state
     if os.path.exists(RUNTIME_CONFIG_FILE):
         try:
             with open(RUNTIME_CONFIG_FILE, "r") as f:
@@ -115,5 +121,6 @@ def run_scraper_background():
     threading.Thread(target=scraper_thread).start()
     return {"message": "Scraper started in background"}
 
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
