@@ -16,8 +16,7 @@ TEE_SHEET_URL = "https://www.prestonwood.com/golf/tee-times-43.html"
 # CHECK_DAY will be dynamically set from date_str now
 LOG_FILE = "available_tee_times.txt"
 CACHE_FILE = "cached_results.json"
-# We'll build the full path to screenshots in the take_screenshot function
-# SCREENSHOT_DIR = "screenshots" # This line is no longer strictly needed but doesn't hurt
+# SCREENSHOT_DIR is now handled directly in take_screenshot for /tmp path
 
 # Logging setup
 log_dir = "logs"
@@ -25,9 +24,6 @@ os.makedirs(log_dir, exist_ok=True)
 today_str = datetime.today().strftime("%Y-%m-%d")
 log_path = os.path.join(log_dir, f"tee_times_{today_str}.log")
 logging.basicConfig(filename=log_path, level=logging.INFO, format="%(asctime)s - %(message)s")
-
-# Ensure screenshot directory exists - this will now create /tmp/screenshots/
-# os.makedirs(SCREENSHOT_DIR, exist_ok=True) # This line is replaced by logic in take_screenshot
 
 # Email setup
 GMAIL_USER = os.getenv("GMAIL_USER")
@@ -98,7 +94,7 @@ def check_tee_times(date_str, start_str, end_str):
                 logging.error("Could not find iframe 'ifrforetees'.")
                 take_screenshot(page, "iframe_not_found_error")
                 results = ["Error: Tee time iframe not found."]
-                with open(CACHE_FILE, "w") as cache_file:
+                with open("cached_results.json", "w") as cache_file: # Use direct filename
                     json.dump({"results": results}, cache_file)
                 return results
 
@@ -113,7 +109,7 @@ def check_tee_times(date_str, start_str, end_str):
                 logging.warning(f"Target date element for day {day_for_selection} not found.")
                 take_screenshot(page, "date_element_not_found")
                 results = ["Date not found or invalid day selected"]
-                with open(CACHE_FILE, "w") as cache_file:
+                with open("cached_results.json", "w") as cache_file: # Use direct filename
                     json.dump({"results": results}, cache_file)
                 return results
 
@@ -143,7 +139,7 @@ def check_tee_times(date_str, start_str, end_str):
                 logging.warning("Tee sheet table not found.")
                 take_screenshot(page, "tee_sheet_not_found")
                 results = ["Tee sheet not found"]
-                with open(CACHE_FILE, "w") as cache_file:
+                with open("cached_results.json", "w") as cache_file: # Use direct filename
                     json.dump({"results": results}, cache_file)
                 return results
 
@@ -166,13 +162,13 @@ def check_tee_times(date_str, start_str, end_str):
 
             # Log and update cache/email
             previous_found = []
-            if os.path.exists(CACHE_FILE):
+            if os.path.exists("cached_results.json"): # Use direct filename
                 try:
-                    with open(CACHE_FILE, "r") as f:
+                    with open("cached_results.json", "r") as f: # Use direct filename
                         previous_data = json.load(f)
                         previous_found = previous_data.get("results", [])
                 except json.JSONDecodeError:
-                    logging.warning(f"Malformed {CACHE_FILE}, starting fresh.")
+                    logging.warning(f"Malformed cached_results.json, starting fresh.")
                     previous_found = []
             
             if "No new tee times" in previous_found and len(previous_found) > 1:
@@ -185,7 +181,7 @@ def check_tee_times(date_str, start_str, end_str):
             else:
                 current_results = ["No new tee times"]
 
-            with open(CACHE_FILE, "w") as cache_file:
+            with open("cached_results.json", "w") as cache_file: # Use direct filename
                 json.dump({"results": current_results}, cache_file)
 
             if new_times:
@@ -202,16 +198,16 @@ def check_tee_times(date_str, start_str, end_str):
             logging.error(f"💥 Error: {e}")
             error_message = f"An error occurred during scraping: {e}"
             take_screenshot(page, "error_state") # Take screenshot on error
-            with open(CACHE_FILE, "w") as cache_file:
+            with open("cached_results.json", "w") as cache_file: # Use direct filename
                 json.dump({"results": [error_message]}, cache_file)
             return [error_message]
         finally:
             browser.close()
 
 def get_cached_tee_times():
-    if os.path.exists(CACHE_FILE):
+    if os.path.exists("cached_results.json"): # Use direct filename
         try:
-            with open(CACHE_FILE, "r") as f:
+            with open("cached_results.json", "r") as f: # Use direct filename
                 data = json.load(f)
                 return data.get("results", ["No cached tee times found or error in cache file."])
         except json.JSONDecodeError:
