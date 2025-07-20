@@ -7,14 +7,14 @@ import smtplib
 import json
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import time # Added for wait_for_selector timeout
+import time # Ensure this is imported for wait_for_timeout
 
 # CONFIG
 USERNAME = "C399"
-PASSWORD = "Goblue8952" # Note: This is a hardcoded password. Ensure it's not sensitive.
+PASSWORD = "Goblue8952"
 LOGIN_URL = "https://www.prestonwood.com/members-login"
 TEE_SHEET_URL = "https://www.prestonwood.com/golf/tee-times-43.html"
-# CHECK_DAY will be dynamically set from date_str now - removed CHECK_DAY from here
+# CHECK_DAY will be dynamically set from date_str now
 LOG_FILE = "available_tee_times.txt"
 CACHE_FILE = "cached_results.json"
 SCREENSHOT_DIR = "screenshots" # Directory to save screenshots
@@ -24,7 +24,6 @@ log_dir = "logs"
 os.makedirs(log_dir, exist_ok=True)
 today_str = datetime.today().strftime("%Y-%m-%d")
 log_path = os.path.join(log_dir, f"tee_times_{today_str}.log")
-# Ensure logging is configured to also output to console for Render logs
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s",
                     handlers=[
                         logging.FileHandler(log_path),
@@ -93,26 +92,50 @@ def check_tee_times(date_str, start_str, end_str):
         browser = None # Initialize browser to None
         try:
             # Use headless=True for production on Render
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
             page = browser.new_page()
 
             logging.info("🔐 Logging in via Playwright")
-            page.goto(LOGIN_URL, wait_until="load", timeout=90000) # Increased timeout
-            take_screenshot(page, "after_login_page_load")
+            page.goto(LOGIN_URL, wait_until="networkidle", timeout=90000) # Increased timeout previously, using networkidle
+            take_screenshot(page, "after_initial_login_page_load")
 
-            # Fill login form
-            page.fill("input#member_login_id", USERNAME)
-            page.fill("input#password", PASSWORD)
-            page.click("input#login")
-            take_screenshot(page, "after_successful_login")
-            
-            # Wait for navigation to complete after login, potentially to tee sheet page or a redirect
-            page.wait_for_load_state("domcontentloaded", timeout=60000) # Wait for initial page content
-            take_screenshot(page, "after_login_redirect_dom_load")
+            # --- NEW LOGIN LOGIC ---
+            member_area_button_selector = "button:has-text('ENTER MEMBER AREA')"
+            login_username_selector = "input#member_login_id" # Original login field selector
+            login_password_selector = "input#password"
+            login_button_selector = "input#login"
 
-            # Navigate to the tee sheet page
-            logging.info("➡️ Attempting to navigate to tee times page.")
-            page.goto(TEE_SHEET_URL, wait_until="load", timeout=90000) # Increased timeout
+            # Check if the "ENTER MEMBER AREA" button is visible
+            # Use page.locator().count() to check existence without waiting for visibility
+            if page.locator(member_area_button_selector).count() > 0 and page.locator(member_area_button_selector).is_visible():
+                logging.info("✅ 'ENTER MEMBER AREA' button found. Bypassing direct login.")
+                page.click(member_area_button_selector, timeout=30000) # Give it time to click
+                page.wait_for_load_state("networkidle", timeout=60000) # Wait for page after clicking
+                take_screenshot(page, "after_enter_member_area_click")
+
+                # After clicking "ENTER MEMBER AREA", navigate to the specific member central page
+                # This ensures we're on a stable page before going to tee times
+                logging.info("➡️ Navigating to Member Central page after bypass.")
+                page.goto("https://www.prestonwood.com/member-central-18.html", wait_until="networkidle", timeout=90000)
+                take_screenshot(page, "after_member_central_navigation")
+
+            elif page.locator(login_username_selector).count() > 0 and page.locator(login_username_selector).is_visible():
+                logging.info("➡️ Login form found. Proceeding with username/password login.")
+                page.fill(login_username_selector, USERNAME, timeout=60000) # Increased timeout
+                page.fill(login_password_selector, PASSWORD, timeout=60000) # Increased timeout
+                page.click(login_button_selector, timeout=60000) # Increased timeout
+                # Wait for URL change after login
+                page.wait_for_url(lambda url: url != LOGIN_URL, timeout=60000)
+                take_screenshot(page, "after_successful_login")
+            else:
+                logging.error("❌ Neither login form nor 'ENTER MEMBER AREA' button found. Login failed.")
+                take_screenshot(page, "login_elements_not_found_error")
+                return ["Error: Could not find login elements."]
+            # --- END NEW LOGIN LOGIC ---
+
+            logging.info("➡️ Navigating to tee times page.")
+            page.goto(TEE_SHEET_URL, wait_until="load", timeout=90000) # Reverted wait_until="load" for tee sheet
+            take_screenshot(page, "after_tee_sheet_load")
             
             # Wait for a key element on the main tee sheet page
             logging.info("Waiting for a key element on the main tee sheet page (#content) to confirm load.")
@@ -144,8 +167,16 @@ def check_tee_times(date_str, start_str, end_str):
                 
                 # Attempt to click based on the day number
                 # This selector might need adjustment based on the actual HTML structure of the calendar
-                iframe.locator(f"td.ui-datepicker-week-end a:has-text('{check_day}')").click(timeout=30000) # Example for weekend days
-                iframe.locator(f"td a:has-text('{check_day}')").first.click(timeout=30000) # More general, click the first matching day
+                # Use a more robust way to click the date, potentially checking for a specific class or parent
+                # This selects a link within a td that has the given text
+                # We'll try a few common patterns or just the first instance
+                try:
+                    iframe.locator(f"td a:has-text('{check_day}')").first.click(timeout=30000)
+                except Exception as click_e:
+                    logging.warning(f"Could not click date '{check_day}' directly: {click_e}. Trying alternative.")
+                    # Fallback for days that might be in a different element or structure
+                    iframe.locator(f"//td[contains(@class, 'ui-datepicker-week-end') or contains(@class, 'ui-datepicker-unselectable') or contains(@class, 'ui-datepicker-current-day')]//a[text()='{check_day}']").click(timeout=30000)
+
                 take_screenshot(page, "after_date_click_in_iframe")
 
                 # Wait for the tee sheet to refresh after date selection
@@ -154,7 +185,7 @@ def check_tee_times(date_str, start_str, end_str):
 
                 # Select "All" courses if applicable
                 logging.info("🔄 Attempting to set course to '-ALL-'.")
-                course_dropdown = iframe.locator("select#course_id")
+                course_dropdown = iframe.locator("select#course_id") # Assuming the ID is correct
                 if course_dropdown.is_visible():
                     course_dropdown.select_option(value="-ALL-")
                     logging.info("✅ Course set to '-ALL-'.")
@@ -167,28 +198,31 @@ def check_tee_times(date_str, start_str, end_str):
                 # Parse the tee sheet
                 logging.info("📄 Parsing tee sheet content.")
                 # Wait for the tee sheet table to appear. Adjust selector if necessary.
-                iframe.wait_for_selector("table.tbl_tee_times", timeout=60000)
+                # Use the new class based on your main.py: "div", class_="member_sheet_table"
+                iframe.wait_for_selector("div.member_sheet_table", timeout=60000)
                 tee_sheet_html = iframe.content()
                 
                 soup = BeautifulSoup(tee_sheet_html, "html.parser")
-                tee_sheet_table = soup.find("table", class_="tbl_tee_times")
+                tee_sheet_table = soup.find("div", class_="member_sheet_table") # Adjusted based on main.py
 
                 if not tee_sheet_table:
-                    logging.warning("⚠️ Tee sheet table not found in HTML. Check selector or page load.")
+                    logging.warning("⚠️ Tee sheet container not found in HTML. Check selector or page load.")
                     take_screenshot(page, "error_tee_sheet_table_missing")
                     return ["No tee sheet table found."]
 
-                logging.info("✅ Tee sheet table found in HTML.")
+                logging.info("✅ Tee sheet container found in HTML.")
                 
                 found = []
                 # Iterate through rows in the tee sheet table to find tee times
-                # Adjust selectors based on the actual table structure
-                for row in tee_sheet_table.find_all("tr"):
-                    cols = row.find_all("td")
-                    if len(cols) > 4: # Assuming at least 5 columns: Time, Player1, Player2, Course, OpenSlots
+                # Adjust selectors based on the actual table structure, using rwdTr and rwdTd from main.py
+                for row in tee_sheet_table.find_all("div", class_="rwdTr"):
+                    cols = row.find_all("div", class_="rwdTd")
+                    if len(cols) >= 5: # Assuming at least 5 columns: Time, Player1, Player2, Course, OpenSlots
                         try:
-                            time_text = cols[0].get_text(strip=True)
-                            course = cols[3].get_text(strip=True)
+                            # Extracting time, course, open slots using main.py's logic
+                            time_element = cols[0].find("div", class_="time_slot") or cols[0].find("a", class_="teetime_button")
+                            time_text = time_element.get_text(strip=True) if time_element else ""
+                            course = cols[2].get_text(strip=True) # Check cols index again for course and open slots
                             open_slots_text = cols[4].get_text(strip=True)
 
                             row_time_obj = datetime.strptime(time_text, "%I:%M %p").time()
@@ -206,12 +240,23 @@ def check_tee_times(date_str, start_str, end_str):
 
                 # Log and process new times
                 previous = []
-                if os.path.exists(LOG_FILE):
-                    with open(LOG_FILE, "r") as f:
-                        previous = [line.strip() for line in f.readlines()]
+                # Use CACHE_FILE instead of LOG_FILE for previous state if it holds parsed data
+                if os.path.exists(CACHE_FILE):
+                    try:
+                        with open(CACHE_FILE, "r") as f:
+                            previous_data = json.load(f)
+                            previous = previous_data.get("results", [])
+                    except json.JSONDecodeError:
+                        logging.warning(f"Malformed {CACHE_FILE}, starting fresh for previous times.")
+                        previous = []
+                
+                # Filter out "No new tee times" if it's the only entry
+                if "No new tee times" in previous and len(previous) > 1:
+                    previous = [item for item in previous if item != "No new tee times"]
 
                 new_times = [t for t in found if t not in previous]
 
+                # Determine what to cache as current results
                 current_results = found if found else ["No new tee times found for the selected criteria."]
                 
                 # Save current results to cache file for /check endpoint
@@ -221,8 +266,9 @@ def check_tee_times(date_str, start_str, end_str):
 
                 if new_times:
                     logging.info("✅ New tee times found:\n" + "\n".join(new_times))
+                    # Log to LOG_FILE (which is primarily for all found times)
                     with open(LOG_FILE, "w") as f:
-                        f.write("\n".join(found)) # Log all found times, not just new ones, to update previous
+                        f.write("\n".join(found))
                     send_email("New Tee Times Available", "\n".join(new_times))
                     return new_times
                 else:
