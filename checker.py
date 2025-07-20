@@ -7,6 +7,7 @@ import smtplib
 import json
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import sys # Import sys for stdout
 
 # CONFIG
 USERNAME = "C399"
@@ -16,14 +17,10 @@ TEE_SHEET_URL = "https://www.prestonwood.com/golf/tee-times-43.html"
 # CHECK_DAY will be dynamically set from date_str now
 LOG_FILE = "available_tee_times.txt"
 CACHE_FILE = "cached_results.json"
-# SCREENSHOT_DIR is now handled directly in take_screenshot for /tmp path
 
-# Logging setup
-log_dir = "logs"
-os.makedirs(log_dir, exist_ok=True)
-today_str = datetime.today().strftime("%Y-%m-%d")
-log_path = os.path.join(log_dir, f"tee_times_{today_str}.log")
-logging.basicConfig(filename=log_path, level=logging.INFO, format="%(asctime)s - %(message)s")
+# Logging setup: Direct logs to stdout
+# No need for log_dir or log_path variables when logging to stdout
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s", stream=sys.stdout)
 
 # Email setup
 GMAIL_USER = os.getenv("GMAIL_USER")
