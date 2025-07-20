@@ -152,8 +152,8 @@ def check_tee_times(date_str, start_str, end_str):
             if new_times:
                 logging.info("✅ New tee times found:\n" + "\n".join(new_times))
                 # This LOG_FILE is now primarily for historical logging, not the source for /check
-                [cite_start]with open(LOG_FILE, "w") as f: # [cite: 1]
-                    [cite_start]f.write("\n".join(found)) # [cite: 1]
+                with open(LOG_FILE, "w") as f:
+                    f.write("\n".join(found))
                 send_email("New Tee Times Available", "\n".join(new_times))
                 return new_times
             else:
