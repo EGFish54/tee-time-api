@@ -105,39 +105,15 @@ def check_tee_times(date_str, start_str, end_str):
             except Exception as e:
                 logging.error(f"Failed to get main page content for debugging: {e}")
 
-            # --- NEW: Try to find and switch to a login iframe ---
-            login_iframe_frame = None # Renamed to avoid confusion with page variable
-            try:
-                logging.info("🔍 Searching for a potential login iframe.")
-                # Wait for any iframe to appear (more specific selectors could be used if known, e.g., iframe[name='loginFrame'])
-                iframe_handle = page.wait_for_selector("iframe", timeout=30000) 
-                login_iframe_frame = iframe_handle.content_frame()
-                
-                if login_iframe_frame:
-                    logging.info("✅ Found an iframe. Attempting to load its content and check for login elements.")
-                    # Wait for iframe content to fully load
-                    login_iframe_frame.wait_for_load_state("domcontentloaded", timeout=60000)
-                    login_iframe_frame.wait_for_load_state("networkidle", timeout=60000)
-                    
-                    iframe_content = login_iframe_frame.content()
-                    logging.info(f"Snippet of iframe HTML (first 1000 chars):\n{iframe_content[:1000]}...")
-                    
-                    if "ENTER MEMBER AREA" in iframe_content:
-                        logging.info("HTML content in iframe contains 'ENTER MEMBER AREA' text.")
-                    if "member_login_id" in iframe_content:
-                        logging.info("HTML content in iframe contains 'member_login_id' text.")
-                else:
-                    logging.warning("No iframe handle found after waiting for 'iframe' selector. Proceeding on main page.")
+            # --- NEW: Add a general sleep to allow dynamic content to load ---
+            logging.info("Sleeping for 5 seconds to allow dynamic content to load.")
+            time.sleep(5)
+            # --- END NEW DEBUGGING ---
 
-            except Exception as e:
-                logging.warning(f"Failed to find or interact with a login iframe: {e}. Proceeding on main page.")
-                # If iframe detection fails, assume login elements are on the main page.
-                login_iframe_frame = None 
+            # Determine which frame to work with (back to just 'page' for now)
+            target_frame = page
 
-            # Determine which frame to work with for login actions
-            target_frame = login_iframe_frame if login_iframe_frame else page
-
-            # --- Explicit wait for either login element (now on target_frame) ---
+            # --- Explicit wait for either login element (now on target_frame, which is 'page') ---
             member_area_button_selector = "button:has-text('ENTER MEMBER AREA')"
             login_username_selector = "input#member_login_id"
             login_password_selector = "input#password"
@@ -149,37 +125,34 @@ def check_tee_times(date_str, start_str, end_str):
                     state='visible',
                     timeout=60000
                 )
-                logging.info("✅ Login element (form or bypass button) found after explicit wait (in target frame).")
+                logging.info("✅ Login element (form or bypass button) found after explicit wait (on main page).")
             except Exception as e:
-                logging.error(f"❌ Timed out waiting for login elements in target frame (at {current_url}): {e}")
+                logging.error(f"❌ Timed out waiting for login elements on main page (at {current_url}): {e}")
                 take_screenshot(page, "timeout_waiting_for_login_elements")
-                return [f"Error: Login elements did not appear in target frame within timeout: {e}"]
+                return [f"Error: Login elements did not appear on main page within timeout: {e}"]
 
-            # --- Login logic (now executed on target_frame) ---
+            # --- Login logic (now executed on target_frame, which is 'page') ---
             if target_frame.locator(member_area_button_selector).is_visible():
-                logging.info("✅ 'ENTER MEMBER AREA' button found. Bypassing direct login (in target frame).")
+                logging.info("✅ 'ENTER MEMBER AREA' button found. Bypassing direct login (on main page).")
                 target_frame.click(member_area_button_selector, timeout=30000)
-                time.sleep(3) # Give a moment for potential redirection/JS processing after click
-                target_frame.wait_for_load_state("networkidle", timeout=60000) # Wait for iframe or page to settle
+                target_frame.wait_for_load_state("networkidle", timeout=60000)
                 take_screenshot(page, "after_enter_member_area_click")
 
                 logging.info("➡️ Navigating to Member Central page after bypass.")
-                # This navigation should happen on the main page if the iframe click redirects the parent.
                 page.goto("https://www.prestonwood.com/member-central-18.html", wait_until="networkidle", timeout=90000)
                 take_screenshot(page, "after_member_central_navigation")
 
             elif target_frame.locator(login_username_selector).is_visible():
-                logging.info("➡️ Login form found. Proceeding with username/password login (in target frame).")
+                logging.info("➡️ Login form found. Proceeding with username/password login (on main page).")
                 target_frame.fill(login_username_selector, USERNAME, timeout=60000)
                 target_frame.fill(login_password_selector, PASSWORD, timeout=60000)
                 target_frame.click(login_button_selector, timeout=60000)
-                # After successful login, the main page URL should change.
                 page.wait_for_url(lambda url: url != LOGIN_URL, timeout=60000)
                 take_screenshot(page, "after_successful_login")
             else:
-                logging.error("❌ Neither login form nor 'ENTER MEMBER AREA' button found after explicit wait (in target frame). This indicates an issue with visibility or disappearance.")
+                logging.error("❌ Neither login form nor 'ENTER MEMBER AREA' button found after explicit wait (on main page). This indicates an issue with visibility or disappearance.")
                 take_screenshot(page, "login_elements_not_found_error_after_wait")
-                return ["Error: Could not find login elements even after explicit wait in target frame."]
+                return ["Error: Could not find login elements even after explicit wait on main page."]
             # --- END LOGIN LOGIC ---
 
             logging.info("➡️ Navigating to tee times page.")
