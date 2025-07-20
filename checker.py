@@ -188,14 +188,20 @@ def check_tee_times(date_str, start_str, end_str):
                 take_screenshot(page, "after_date_selection_refresh_iframe")
 
                 logging.info("🔄 Attempting to set course to '-ALL-'.")
-                course_dropdown = iframe.locator("select#course_id")
-                if course_dropdown.is_visible():
+                try:
+                    course_dropdown = iframe.locator("select#course_id")
+                    course_dropdown.wait_for(state='visible', timeout=30000) # Give it 30 seconds to appear
+                    
+                    dropdown_html = iframe.evaluate(f"document.querySelector('select#course_id').outerHTML")
+                    logging.info(f"Course dropdown HTML snippet: {dropdown_html[:500]}...")
+
                     course_dropdown.select_option(value="-ALL-")
                     logging.info("✅ Course set to '-ALL-'.")
                     iframe.wait_for_load_state("networkidle", timeout=90000)
                     take_screenshot(page, "after_course_select_in_iframe")
-                else:
-                    logging.info("Course dropdown not found or not visible, skipping course selection.")
+                except Exception as e:
+                    logging.warning(f"❌ Failed to set course to '-ALL-': {e}. Course dropdown not found or not visible, skipping course selection.")
+                    take_screenshot(page, "error_course_dropdown_not_found")
 
                 logging.info("📄 Parsing tee sheet content.")
                 iframe.wait_for_selector("div.member_sheet_table", timeout=60000)
