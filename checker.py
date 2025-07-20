@@ -41,12 +41,23 @@ def send_email(subject, body):
     except Exception as e:
         logging.error(f"❌ Failed to send email: {e}")
 
-def take_screenshot(page, name):
+# Modified take_screenshot to accept Page or Frame and screenshot via page
+def take_screenshot(playable_object, name):
     try:
         temp_screenshot_dir = os.path.join("/tmp", "screenshots")
         os.makedirs(temp_screenshot_dir, exist_ok=True)
         screenshot_path = os.path.join(temp_screenshot_dir, f"{name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-        page.screenshot(path=screenshot_path)
+
+        # Determine if playable_object is a Page or a Frame, and get the Page object
+        if hasattr(playable_object, 'screenshot'): # It's a Page object
+            page_to_screenshot = playable_object
+        elif hasattr(playable_object, 'page') and hasattr(playable_object.page, 'screenshot'): # It's a Frame object
+            page_to_screenshot = playable_object.page
+        else:
+            logging.warning(f"Invalid object type passed to take_screenshot: {type(playable_object)}. Cannot take screenshot.")
+            return
+
+        page_to_screenshot.screenshot(path=screenshot_path)
         logging.info(f"📸 Screenshot saved: {screenshot_path}")
     except Exception as e:
         logging.warning(f"Could not take screenshot {name}: {e}")
@@ -69,23 +80,27 @@ def check_tee_times(date_str, start_str, end_str):
 
         try:
             logging.info("🔐 Logging in via Playwright")
-            page.goto(LOGIN_URL, timeout=90000) # Increased timeout
+            page.goto(LOGIN_URL, timeout=90000)
             take_screenshot(page, "after_login_page_load")
             
             page.fill("#lgUserName", USERNAME)
             page.fill("#lgPassword", PASSWORD)
             page.click("#lgLoginButton")
-            page.wait_for_url(lambda url: url != LOGIN_URL, timeout=90000) # Increased timeout
+            page.wait_for_url(lambda url: url != LOGIN_URL, timeout=90000)
             take_screenshot(page, "after_successful_login")
 
             logging.info("➡️ Attempting to navigate to tee times page.")
-            page.goto(TEE_SHEET_URL, timeout=120000) # Further increased timeout for tee sheet page load
+            page.goto(TEE_SHEET_URL, timeout=180000) # Increased timeout to 3 minutes
             page.wait_for_load_state('domcontentloaded') # Wait for main page DOM to be ready
-            take_screenshot(page, "after_tee_sheet_main_page_load") # New screenshot of the main page
+            
+            # New wait for an element on the main page to confirm it loaded
+            logging.info("Waiting for a key element on the main tee sheet page (#content) to confirm load.")
+            page.wait_for_selector("#content", timeout=60000) # Wait for #content div on the main page
+            take_screenshot(page, "after_tee_sheet_main_page_loaded_element") # New screenshot of the main page after element is found
+
 
             logging.info("🔍 Searching for iframe 'ifrforetees'.")
             # Wait for the iframe itself to appear if it's dynamically loaded
-            # Use page.locator to wait for the iframe element itself
             iframe_locator = page.locator('iframe[name="ifrforetees"]')
             iframe_locator.wait_for(state='visible', timeout=90000) # Wait for the iframe element to be visible
 
@@ -107,9 +122,8 @@ def check_tee_times(date_str, start_str, end_str):
             take_screenshot(frame, "after_iframe_network_idle") # Screenshot after network idle
 
             logging.info(f"📅 Attempting to select date: {date_str} (Day: {day_for_selection}) by waiting for #member_select_calendar1 within iframe.")
-            # Increase timeout for wait_for_selector significantly
             frame.wait_for_selector("#member_select_calendar1", timeout=120000) # Increased timeout
-            take_screenshot(frame, "before_date_selection_in_iframe") # Screenshot before date selection in iframe
+            take_screenshot(frame, "before_date_selection_in_iframe")
 
 
             date_elements = frame.query_selector_all("#member_select_calendar1 a.ui-state-default")
