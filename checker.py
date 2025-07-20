@@ -7,17 +7,16 @@ import smtplib
 import json
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import time # Ensure this is imported for wait_for_timeout
+import time
 
 # CONFIG
 USERNAME = "C399"
 PASSWORD = "Goblue8952"
 LOGIN_URL = "https://www.prestonwood.com/members-login"
 TEE_SHEET_URL = "https://www.prestonwood.com/golf/tee-times-43.html"
-# CHECK_DAY will be dynamically set from date_str now
 LOG_FILE = "available_tee_times.txt"
 CACHE_FILE = "cached_results.json"
-SCREENSHOT_DIR = "screenshots" # Directory to save screenshots
+SCREENSHOT_DIR = "screenshots"
 
 # Logging setup
 log_dir = "logs"
@@ -27,7 +26,7 @@ log_path = os.path.join(log_dir, f"tee_times_{today_str}.log")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s",
                     handlers=[
                         logging.FileHandler(log_path),
-                        logging.StreamHandler() # Add StreamHandler to output to console/Render logs
+                        logging.StreamHandler()
                     ])
 
 # Ensure screenshot directory exists
@@ -36,7 +35,7 @@ os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 # Email setup
 GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_PASS = os.getenv("GMAIL_PASS")
-RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL") or GMAIL_USER # Fallback if RECIPIENT_EMAIL not set
+RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL") or GMAIL_USER
 
 def send_email(subject, body):
     if not GMAIL_USER or not GMAIL_PASS or not RECIPIENT_EMAIL:
@@ -50,16 +49,14 @@ def send_email(subject, body):
         msg["Subject"] = subject
         msg.attach(MIMEText(body, "plain"))
 
-        # Use 587 for TLS, 465 for SSL. Most modern SMTP uses 587.
         server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls() # Secure the connection
+        server.starttls()
         server.login(GMAIL_USER, GMAIL_PASS)
         server.send_message(msg)
         server.quit()
         logging.info("📧 Email sent!")
     except Exception as e:
         logging.error(f"❌ Failed to send email: {e}")
-        # Log the specific error for debugging
         if hasattr(e, 'smtp_code') and hasattr(e, 'smtp_error'):
             logging.error(f"SMTP Error Code: {e.smtp_code}, Message: {e.smtp_error}")
 
@@ -73,15 +70,12 @@ def take_screenshot(page, name_prefix="screenshot"):
         logging.error(f"Could not take screenshot {name_prefix}: {e}")
 
 def check_tee_times(date_str, start_str, end_str):
-    # THIS IS THE NEW LOGGING LINE to confirm the config received by checker.py
     logging.info(f"Scraper received config: Date={date_str}, Start={start_str}, End={end_str}")
 
     try:
         target_date = datetime.strptime(date_str, "%m/%d/%Y")
         start_time_obj = datetime.strptime(start_str, "%I:%M %p").time()
         end_time_obj = datetime.strptime(end_str, "%I:%M %p").time()
-        
-        # Extract the day from the date_str to use for clicking the calendar
         check_day = str(target_date.day)
 
     except ValueError as e:
@@ -89,60 +83,83 @@ def check_tee_times(date_str, start_str, end_str):
         return [f"Error: Invalid date/time format in config: {e}"]
 
     with sync_playwright() as p:
-        browser = None # Initialize browser to None
+        browser = None
         try:
-            # Use headless=True for production on Render
             browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
             page = browser.new_page()
 
             logging.info("🔐 Logging in via Playwright")
-            page.goto(LOGIN_URL, wait_until="networkidle", timeout=90000) # Increased timeout previously, using networkidle
+            page.goto(LOGIN_URL, wait_until="networkidle", timeout=90000)
             take_screenshot(page, "after_initial_login_page_load")
 
-            # --- NEW LOGIN LOGIC ---
+            # --- NEW DEBUGGING: Log current URL and page content ---
+            current_url = page.url
+            logging.info(f"Current URL after initial goto: {current_url}")
+
+            try:
+                page_content = page.content()
+                # Log first 1000 characters for a snippet, checking for key strings
+                logging.info(f"Snippet of page HTML after goto (first 1000 chars):\n{page_content[:1000]}...")
+                if "ENTER MEMBER AREA" in page_content:
+                    logging.info("HTML content contains 'ENTER MEMBER AREA' text.")
+                if "member_login_id" in page_content:
+                    logging.info("HTML content contains 'member_login_id' text.")
+                if "input#member_login_id" in page_content: # Checking for the actual selector text
+                    logging.info("HTML content contains 'input#member_login_id' text (as selector string).")
+            except Exception as e:
+                logging.error(f"Failed to get page content for debugging: {e}")
+            # --- END NEW DEBUGGING ---
+
+            # --- Explicit wait for either login element ---
             member_area_button_selector = "button:has-text('ENTER MEMBER AREA')"
-            login_username_selector = "input#member_login_id" # Original login field selector
+            login_username_selector = "input#member_login_id"
             login_password_selector = "input#password"
             login_button_selector = "input#login"
 
-            # Check if the "ENTER MEMBER AREA" button is visible
-            # Use page.locator().count() to check existence without waiting for visibility
-            if page.locator(member_area_button_selector).count() > 0 and page.locator(member_area_button_selector).is_visible():
+            try:
+                page.wait_for_selector(
+                    f"{member_area_button_selector}, {login_username_selector}",
+                    state='visible',
+                    timeout=60000
+                )
+                logging.info("✅ Login element (form or bypass button) found after explicit wait.")
+            except Exception as e:
+                logging.error(f"❌ Timed out waiting for login elements (at {current_url}): {e}")
+                take_screenshot(page, "timeout_waiting_for_login_elements")
+                return [f"Error: Login elements did not appear on page within timeout: {e}"]
+
+            # --- Login logic (now executed after explicit wait) ---
+            if page.locator(member_area_button_selector).is_visible():
                 logging.info("✅ 'ENTER MEMBER AREA' button found. Bypassing direct login.")
-                page.click(member_area_button_selector, timeout=30000) # Give it time to click
-                page.wait_for_load_state("networkidle", timeout=60000) # Wait for page after clicking
+                page.click(member_area_button_selector, timeout=30000)
+                page.wait_for_load_state("networkidle", timeout=60000)
                 take_screenshot(page, "after_enter_member_area_click")
 
-                # After clicking "ENTER MEMBER AREA", navigate to the specific member central page
-                # This ensures we're on a stable page before going to tee times
                 logging.info("➡️ Navigating to Member Central page after bypass.")
                 page.goto("https://www.prestonwood.com/member-central-18.html", wait_until="networkidle", timeout=90000)
                 take_screenshot(page, "after_member_central_navigation")
 
-            elif page.locator(login_username_selector).count() > 0 and page.locator(login_username_selector).is_visible():
+            elif page.locator(login_username_selector).is_visible():
                 logging.info("➡️ Login form found. Proceeding with username/password login.")
-                page.fill(login_username_selector, USERNAME, timeout=60000) # Increased timeout
-                page.fill(login_password_selector, PASSWORD, timeout=60000) # Increased timeout
-                page.click(login_button_selector, timeout=60000) # Increased timeout
-                # Wait for URL change after login
+                page.fill(login_username_selector, USERNAME, timeout=60000)
+                page.fill(login_password_selector, PASSWORD, timeout=60000)
+                page.click(login_button_selector, timeout=60000)
                 page.wait_for_url(lambda url: url != LOGIN_URL, timeout=60000)
                 take_screenshot(page, "after_successful_login")
             else:
-                logging.error("❌ Neither login form nor 'ENTER MEMBER AREA' button found. Login failed.")
-                take_screenshot(page, "login_elements_not_found_error")
-                return ["Error: Could not find login elements."]
+                logging.error("❌ Neither login form nor 'ENTER MEMBER AREA' button found after explicit wait. This indicates an issue with visibility or disappearance.")
+                take_screenshot(page, "login_elements_not_found_error_after_wait")
+                return ["Error: Could not find login elements even after explicit wait."]
             # --- END NEW LOGIN LOGIC ---
 
             logging.info("➡️ Navigating to tee times page.")
-            page.goto(TEE_SHEET_URL, wait_until="load", timeout=90000) # Reverted wait_until="load" for tee sheet
+            page.goto(TEE_SHEET_URL, wait_until="load", timeout=90000)
             take_screenshot(page, "after_tee_sheet_load")
             
-            # Wait for a key element on the main tee sheet page
             logging.info("Waiting for a key element on the main tee sheet page (#content) to confirm load.")
-            page.wait_for_selector("#content", timeout=90000) # Wait for the main content div
+            page.wait_for_selector("#content", timeout=90000)
             take_screenshot(page, "after_tee_sheet_main_page_loaded_element")
 
-            # Find and interact with the iframe
             logging.info("🔍 Searching for iframe 'ifrforetees'.")
             iframe_handle = page.wait_for_selector("iframe#ifrforetees", timeout=60000)
             if iframe_handle:
@@ -155,55 +172,38 @@ def check_tee_times(date_str, start_str, end_str):
                 iframe.wait_for_load_state("networkidle", timeout=90000)
                 take_screenshot(page, "after_iframe_network_idle")
 
-                # Select the date
                 logging.info(f"📅 Attempting to select date: {date_str} (Day: {check_day}) by waiting for #member_select_calendar1 within iframe.")
-                # Wait for the calendar element to be ready
                 iframe.wait_for_selector("#member_select_calendar1", timeout=60000)
                 take_screenshot(page, "before_date_selection_in_iframe")
                 
-                # Click the specific day in the calendar (assuming it's a direct clickable element)
-                # The calendar typically uses 'td' elements or 'a' tags within them
                 logging.info(f"📆 Clicking on target date: {check_day}")
-                
-                # Attempt to click based on the day number
-                # This selector might need adjustment based on the actual HTML structure of the calendar
-                # Use a more robust way to click the date, potentially checking for a specific class or parent
-                # This selects a link within a td that has the given text
-                # We'll try a few common patterns or just the first instance
                 try:
                     iframe.locator(f"td a:has-text('{check_day}')").first.click(timeout=30000)
                 except Exception as click_e:
                     logging.warning(f"Could not click date '{check_day}' directly: {click_e}. Trying alternative.")
-                    # Fallback for days that might be in a different element or structure
                     iframe.locator(f"//td[contains(@class, 'ui-datepicker-week-end') or contains(@class, 'ui-datepicker-unselectable') or contains(@class, 'ui-datepicker-current-day')]//a[text()='{check_day}']").click(timeout=30000)
 
                 take_screenshot(page, "after_date_click_in_iframe")
 
-                # Wait for the tee sheet to refresh after date selection
                 iframe.wait_for_load_state("networkidle", timeout=90000)
                 take_screenshot(page, "after_date_selection_refresh_iframe")
 
-                # Select "All" courses if applicable
                 logging.info("🔄 Attempting to set course to '-ALL-'.")
-                course_dropdown = iframe.locator("select#course_id") # Assuming the ID is correct
+                course_dropdown = iframe.locator("select#course_id")
                 if course_dropdown.is_visible():
                     course_dropdown.select_option(value="-ALL-")
                     logging.info("✅ Course set to '-ALL-'.")
-                    iframe.wait_for_load_state("networkidle", timeout=90000) # Wait for refresh after course selection
+                    iframe.wait_for_load_state("networkidle", timeout=90000)
                     take_screenshot(page, "after_course_select_in_iframe")
                 else:
                     logging.info("Course dropdown not found or not visible, skipping course selection.")
 
-
-                # Parse the tee sheet
                 logging.info("📄 Parsing tee sheet content.")
-                # Wait for the tee sheet table to appear. Adjust selector if necessary.
-                # Use the new class based on your main.py: "div", class_="member_sheet_table"
                 iframe.wait_for_selector("div.member_sheet_table", timeout=60000)
                 tee_sheet_html = iframe.content()
                 
                 soup = BeautifulSoup(tee_sheet_html, "html.parser")
-                tee_sheet_table = soup.find("div", class_="member_sheet_table") # Adjusted based on main.py
+                tee_sheet_table = soup.find("div", class_="member_sheet_table")
 
                 if not tee_sheet_table:
                     logging.warning("⚠️ Tee sheet container not found in HTML. Check selector or page load.")
@@ -213,16 +213,13 @@ def check_tee_times(date_str, start_str, end_str):
                 logging.info("✅ Tee sheet container found in HTML.")
                 
                 found = []
-                # Iterate through rows in the tee sheet table to find tee times
-                # Adjust selectors based on the actual table structure, using rwdTr and rwdTd from main.py
                 for row in tee_sheet_table.find_all("div", class_="rwdTr"):
                     cols = row.find_all("div", class_="rwdTd")
-                    if len(cols) >= 5: # Assuming at least 5 columns: Time, Player1, Player2, Course, OpenSlots
+                    if len(cols) >= 5:
                         try:
-                            # Extracting time, course, open slots using main.py's logic
                             time_element = cols[0].find("div", class_="time_slot") or cols[0].find("a", class_="teetime_button")
                             time_text = time_element.get_text(strip=True) if time_element else ""
-                            course = cols[2].get_text(strip=True) # Check cols index again for course and open slots
+                            course = cols[2].get_text(strip=True)
                             open_slots_text = cols[4].get_text(strip=True)
 
                             row_time_obj = datetime.strptime(time_text, "%I:%M %p").time()
@@ -232,15 +229,11 @@ def check_tee_times(date_str, start_str, end_str):
                                 msg = f"{time_text} - {course} - {num_open} slots open"
                                 found.append(msg)
                         except ValueError:
-                            # Handle cases where time_text might not be a valid time format
                             continue
                         except IndexError:
-                            # Handle cases where row might not have enough columns
                             continue
 
-                # Log and process new times
                 previous = []
-                # Use CACHE_FILE instead of LOG_FILE for previous state if it holds parsed data
                 if os.path.exists(CACHE_FILE):
                     try:
                         with open(CACHE_FILE, "r") as f:
@@ -250,23 +243,19 @@ def check_tee_times(date_str, start_str, end_str):
                         logging.warning(f"Malformed {CACHE_FILE}, starting fresh for previous times.")
                         previous = []
                 
-                # Filter out "No new tee times" if it's the only entry
                 if "No new tee times" in previous and len(previous) > 1:
                     previous = [item for item in previous if item != "No new tee times"]
 
                 new_times = [t for t in found if t not in previous]
 
-                # Determine what to cache as current results
                 current_results = found if found else ["No new tee times found for the selected criteria."]
                 
-                # Save current results to cache file for /check endpoint
                 with open(CACHE_FILE, "w") as cache_file:
                     json.dump({"results": current_results}, cache_file)
 
 
                 if new_times:
                     logging.info("✅ New tee times found:\n" + "\n".join(new_times))
-                    # Log to LOG_FILE (which is primarily for all found times)
                     with open(LOG_FILE, "w") as f:
                         f.write("\n".join(found))
                     send_email("New Tee Times Available", "\n".join(new_times))
@@ -278,14 +267,13 @@ def check_tee_times(date_str, start_str, end_str):
         except Exception as e:
             logging.error(f"💥 Error during scraping: {e}")
             error_message = f"An error occurred during scraping: {e}"
-            take_screenshot(page, "error_state") # Take screenshot on error
+            take_screenshot(page, "error_state")
             
-            # Save error message to cache file
             with open(CACHE_FILE, "w") as cache_file:
                 json.dump({"results": [error_message]}, cache_file)
             return [error_message]
         finally:
-            if browser: # Ensure browser object exists before trying to close
+            if browser:
                 browser.close()
                 logging.info("Browser closed.")
 
