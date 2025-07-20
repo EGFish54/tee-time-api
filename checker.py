@@ -63,6 +63,7 @@ def take_screenshot(playable_object, name):
         logging.warning(f"Could not take screenshot {name}: {e}")
 
 def check_tee_times(date_str, start_str, end_str):
+    logging.info(f"Scraper received config: Date={date_str}, Start={start_str}, End={end_str}")
     start_time = datetime.strptime(start_str, "%I:%M %p")
     end_time = datetime.strptime(end_str, "%I:%M %p")
 
