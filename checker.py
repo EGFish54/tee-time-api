@@ -169,7 +169,9 @@ def check_tee_times(date_str, start_str, end_str):
 
                 logging.info("✅ Iframe content loaded (domcontentloaded). Waiting for networkidle in iframe.")
                 iframe.wait_for_load_state("networkidle", timeout=90000)
-                take_screenshot(page, "after_iframe_network_idle")
+                # Add a small explicit wait to ensure all elements including dropdown are rendered
+                page.wait_for_timeout(5000) # Wait 5 seconds
+                take_screenshot(page, "after_iframe_network_idle_and_wait") # New screenshot after this wait
 
                 logging.info(f"📅 Attempting to select date: {date_str} (Day: {check_day}) by waiting for #member_select_calendar1 within iframe.")
                 iframe.wait_for_selector("#member_select_calendar1", timeout=60000)
@@ -185,7 +187,9 @@ def check_tee_times(date_str, start_str, end_str):
                 take_screenshot(page, "after_date_click_in_iframe")
 
                 iframe.wait_for_load_state("networkidle", timeout=90000)
-                take_screenshot(page, "after_date_selection_refresh_iframe")
+                # Add a small explicit wait after date selection refresh to ensure all elements
+                page.wait_for_timeout(5000) # Wait 5 seconds
+                take_screenshot(page, "after_date_selection_refresh_iframe_and_wait") # New screenshot after this wait
 
                 logging.info("🔄 Attempting to set course to '-ALL-'.")
                 try:
