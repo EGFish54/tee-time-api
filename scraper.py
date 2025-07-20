@@ -1,33 +1,29 @@
 import os
 import json
 import logging
-from checker import check_tee_times # Import check_tee_times function
+from checker import check_tee_times, cached_results # Ensure check_tee_times and cached_results are imported from checker
 
-CONFIG_FILE = "config.json"
-
-# In-memory config as fallback if reading config.json fails
-in_memory_config = {
-    "date": "07/23/2025",
-    "start": "08:00 AM",
-    "end": "09:00 AM"
-}
-
-# Try to load from config file into in-memory config
-if os.path.exists(CONFIG_FILE):
-    try:
-        with open(CONFIG_FILE, "r") as f:
-            in_memory_config = json.load(f)
-    except Exception as e:
-        logging.error(f"Failed to read config.json: {e}")
+# In scraper.py, we will remove the old CONFIG_FILE and in_memory_config.
+# This file will now strictly use the parameters passed to run_scraper from app.py.
 
 def run_scraper(date=None, start=None, end=None):
-    logging.info("Starting scraper with provided or fallback config")
+    global cached_results # If cached_results is used globally in scraper.py, keep this.
+                          # However, it's defined and updated in checker.py primarily.
 
-    # Use provided values or fallback to in_memory_config
-    date = date or in_memory_config["date"]
-    start = start or in_memory_config["start"]
-    end = end or in_memory_config["end"]
+    # This log will show what config run_scraper actually received from app.py
+    logging.info(f"Starting scraper with received config: Date={date}, Start={start}, End={end}")
 
-    # check_tee_times now handles writing to cached_results.json
+    # Ensure date, start, and end are not None before passing
+    if date is None or start is None or end is None:
+        logging.error("Scraper received incomplete configuration. Cannot proceed.")
+        # Optionally, you could fall back to defaults or raise an error
+        return ["Error: Incomplete configuration provided to scraper."]
+
+    # Call check_tee_times with the explicitly passed parameters
     results = check_tee_times(date, start, end)
-    logging.info("Scraper results processed and cached (via checker.py).")
+    
+    # Update cached_results if necessary (though it's primarily managed in checker.py)
+    # This line might be redundant if checker.py directly handles caching.
+    # cached_results = results 
+    
+    logging.info("Scraper run completed.") # More generic message here as checker.py logs details
