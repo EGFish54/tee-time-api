@@ -169,9 +169,8 @@ def check_tee_times(date_str, start_str, end_str):
 
                 logging.info("✅ Iframe content loaded (domcontentloaded). Waiting for networkidle in iframe.")
                 iframe.wait_for_load_state("networkidle", timeout=90000)
-                # Add a small explicit wait to ensure all elements including dropdown are rendered
-                page.wait_for_timeout(5000) # Wait 5 seconds
-                take_screenshot(page, "after_iframe_network_idle_and_wait") # New screenshot after this wait
+                page.wait_for_timeout(5000) # Wait 5 seconds for elements to settle
+                take_screenshot(page, "after_iframe_network_idle_and_wait")
 
                 logging.info(f"📅 Attempting to select date: {date_str} (Day: {check_day}) by waiting for #member_select_calendar1 within iframe.")
                 iframe.wait_for_selector("#member_select_calendar1", timeout=60000)
@@ -187,26 +186,44 @@ def check_tee_times(date_str, start_str, end_str):
                 take_screenshot(page, "after_date_click_in_iframe")
 
                 iframe.wait_for_load_state("networkidle", timeout=90000)
-                # Add a small explicit wait after date selection refresh to ensure all elements
-                page.wait_for_timeout(5000) # Wait 5 seconds
-                take_screenshot(page, "after_date_selection_refresh_iframe_and_wait") # New screenshot after this wait
+                page.wait_for_timeout(5000) # Wait 5 seconds for elements to settle
+                take_screenshot(page, "after_date_selection_refresh_iframe_and_wait")
 
-                logging.info("🔄 Attempting to set course to '-ALL-'.")
-                try:
-                    course_dropdown = iframe.locator("select#course_id")
-                    course_dropdown.wait_for(state='visible', timeout=30000) # Give it 30 seconds to appear
-                    
-                    dropdown_html = iframe.evaluate(f"document.querySelector('select#course_id').outerHTML")
-                    logging.info(f"Course dropdown HTML snippet: {dropdown_html[:500]}...")
+                logging.info("📄 Waiting for tee sheet content to be stable before course selection.")
+                # Ensure the tee sheet table is present and stable *before* attempting course dropdown
+                iframe.wait_for_selector("div.member_sheet_table", state='visible', timeout=60000)
+                logging.info("✅ Tee sheet table visible. Proceeding to course selection.")
 
-                    course_dropdown.select_option(value="-ALL-")
-                    logging.info("✅ Course set to '-ALL-'.")
-                    iframe.wait_for_load_state("networkidle", timeout=90000)
-                    take_screenshot(page, "after_course_select_in_iframe")
-                except Exception as e:
-                    logging.warning(f"❌ Failed to set course to '-ALL-': {e}. Course dropdown not found or not visible, skipping course selection.")
-                    take_screenshot(page, "error_course_dropdown_not_found")
 
+                logging.info("🔄 Attempting to set course to '-ALL-' using robust search from main.py logic.")
+                course_selected = False
+                # Get all select elements within the iframe
+                select_elements = iframe.query_selector_all("select") 
+                
+                for select_el_handle in select_elements:
+                    try:
+                        # Get the outerHTML of the select element to inspect its options
+                        select_html = select_el_handle.evaluate("node => node.outerHTML")
+                        
+                        # Check if the "-ALL-" option exists within this select element
+                        # The 'value' could be different from '-ALL-', but 'label' (visible text) is usually '-ALL-'
+                        if "-ALL-" in select_html: 
+                            # If we find it, select it by its label
+                            select_el_handle.select_option(label="-ALL-")
+                            logging.info("✅ Course set to '-ALL-'.")
+                            course_selected = True
+                            break # Exit loop once found and selected
+                    except Exception as select_e:
+                        logging.warning(f"Could not process select element or select option: {select_e}")
+                
+                if not course_selected:
+                    logging.warning("❌ '-ALL-' course option not found after iterating through all select elements.")
+                    take_screenshot(page, "course_all_not_found_robust_search")
+                
+                # Wait for page to settle after changing dropdown
+                iframe.wait_for_load_state("networkidle", timeout=90000)
+                take_screenshot(page, "after_course_select_robust_search")
+                
                 logging.info("📄 Parsing tee sheet content.")
                 iframe.wait_for_selector("div.member_sheet_table", timeout=60000)
                 tee_sheet_html = iframe.content()
