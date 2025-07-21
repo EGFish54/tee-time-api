@@ -1,9 +1,12 @@
-const API_BASE_URL = "https://tee-time-api.onrender.com"; // <-- IMPORTANT: Replace with your actual Render API URL
+const API_BASE_URL = "https://tee-time-api.onrender.com"; // Your Render API URL
 
 document.addEventListener("DOMContentLoaded", () => {
-    const dateInput = document.getElementById("dateInput");
-    const startTimeInput = document.getElementById("startTimeInput");
-    const endTimeInput = document.getElementById("endTimeInput");
+    // --- FIX 1: Corrected Input IDs to match index.html ---
+    const dateInput = document.getElementById("date"); // Changed from "dateInput"
+    const startTimeInput = document.getElementById("start"); // Changed from "startTimeInput"
+    const endTimeInput = document.getElementById("end"); // Changed from "endTimeInput"
+    // --- End Fix 1 ---
+
     const updateButton = document.getElementById("updateButton");
     const messageDiv = document.getElementById("message");
     const currentConfigP = document.getElementById("currentConfig");
@@ -16,7 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (response.ok) {
                 const config = data.current_config;
                 currentConfigP.textContent = `Date: ${config.date}\nStart: ${config.start}\nEnd: ${config.end}`;
-                // Pre-fill input fields
+                // Pre-fill input fields with current values
                 dateInput.value = config.date;
                 startTimeInput.value = config.start;
                 endTimeInput.value = config.end;
@@ -30,7 +33,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // Function to handle update button click
-    updateButton.addEventListener("click", async () => {
+    updateButton.addEventListener("click", async (event) => { // Added 'event' parameter
+        // --- FIX 2: Prevent default form submission ---
+        event.preventDefault(); // Stop the page from reloading
+        // --- End Fix 2 ---
+
         const date = dateInput.value;
         const start = startTimeInput.value;
         const end = endTimeInput.value;
