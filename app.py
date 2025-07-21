@@ -1,6 +1,5 @@
 from fastapi import FastAPI, Query
 from fastapi.staticfiles import StaticFiles
-# Removed HTMLResponse import as it's no longer needed for the root route
 from checker import check_tee_times, get_cached_tee_times
 import subprocess
 import os
@@ -18,11 +17,13 @@ try:
 except Exception as e:
     logging.error(f"Failed to install Playwright at runtime: {e}")
 
-# Use a path on Render's persistent disk if available, otherwise fallback for local testing
-# This path assumes you have a persistent disk mounted at /var/data on Render
-RUNTIME_CONFIG_FILE = "/var/data/current_config.json"
-# Ensure the directory for the config file exists
-os.makedirs(os.path.dirname(RUNTIME_CONFIG_FILE), exist_ok=True)
+# --- IMPORTANT CHANGE HERE: Revert to a writable path for free tier ---
+RUNTIME_CONFIG_FILE = "current_config.json" # This will be in your app's root directory
+# --- END IMPORTANT CHANGE ---
+
+# Ensure the directory for the config file exists (this will create it if using subdirectories,
+# but for root, it just ensures the path is valid)
+os.makedirs(os.path.dirname(RUNTIME_CONFIG_FILE) or '.', exist_ok=True) # Added 'or '.' for root path
 
 
 DEFAULT_CONFIG = {
