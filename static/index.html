@@ -14,35 +14,36 @@
         <form id="teeTimeForm">
             <div class="input-group">
                 <label for="date">Date (MM/DD/YYYY):</label>
-                <!-- Corrected ID to 'date' -->
                 <input type="text" id="date" name="date" placeholder="e.g., 07/23/2025" required>
             </div>
 
             <div class="input-group">
                 <label for="start">Start Time (HH:MM AM/PM):</label>
-                <!-- Corrected ID to 'start' -->
                 <input type="text" id="start" name="start" placeholder="e.g., 01:00 PM" required>
             </div>
 
             <div class="input-group">
                 <label for="end">End Time (HH:MM AM/PM):</label>
-                <!-- Corrected ID to 'end' -->
                 <input type="text" id="end" name="end" placeholder="e.g., 02:00 PM" required>
             </div>
 
-            <!-- Added id="updateButton" to match script.js, changed text -->
             <button id="updateButton" type="submit">Update Config</button>
         </form>
+
+        <!-- NEW: Scraper Pause/Resume Section -->
+        <div class="input-group" style="margin-top: 20px;">
+            <button id="togglePauseButton">Loading Scraper Status...</button>
+        </div>
+        <p id="scraperStatus" style="text-align: center; font-weight: bold; margin-top: 10px;"></p>
+        <!-- END NEW -->
 
         <!-- Message display area -->
         <div id="message" class="message"></div>
 
         <h2>Current Config:</h2>
-        <!-- Paragraph to display current configuration -->
         <p id="currentConfig"></p>
     </div>
 
-    <!-- Link to the JavaScript file -->
     <script src="/static/script.js"></script>
 </body>
 </html>

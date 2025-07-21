@@ -29,7 +29,8 @@ os.makedirs(os.path.dirname(RUNTIME_CONFIG_FILE) or '.', exist_ok=True) # Added 
 DEFAULT_CONFIG = {
     "date": "07/23/2025",
     "start": "08:00 AM",
-    "end": "09:00 AM"
+    "end": "09:00 AM",
+    "is_paused": False # NEW: Add a pause flag, default to False (running)
 }
 
 in_memory_config = DEFAULT_CONFIG.copy()
@@ -40,6 +41,9 @@ if os.path.exists(RUNTIME_CONFIG_FILE):
         with open(RUNTIME_CONFIG_FILE, "r") as f:
             loaded_config = json.load(f)
             in_memory_config.update(loaded_config)
+            # Ensure 'is_paused' is set if it wasn't in an older config file
+            if "is_paused" not in in_memory_config:
+                in_memory_config["is_paused"] = DEFAULT_CONFIG["is_paused"]
             logging.info(f"Loaded config from {RUNTIME_CONFIG_FILE}: {in_memory_config}")
     except json.JSONDecodeError:
         logging.warning(f"Error decoding JSON from {RUNTIME_CONFIG_FILE}. Using default config.")
@@ -83,10 +87,13 @@ def get_config():
         try:
             with open(RUNTIME_CONFIG_FILE, "r") as f:
                 current_saved_config = json.load(f)
+                # Ensure 'is_paused' is included in the returned config for clients
+                if "is_paused" not in current_saved_config:
+                    current_saved_config["is_paused"] = DEFAULT_CONFIG["is_paused"]
                 return {"current_config": current_saved_config}
-        except Exception as e:
-            logging.error(f"Failed to load runtime config for /get endpoint: {e}")
-            return {"current_config": in_memory_config}
+            except Exception as e:
+                logging.error(f"Failed to load runtime config for /get endpoint: {e}")
+                return {"current_config": in_memory_config}
     else:
         return {"current_config": in_memory_config}
 
@@ -102,6 +109,12 @@ def check():
 
 @app.get("/run-scraper")
 def run_scraper_background():
+    global in_memory_config # Ensure we read the latest state
+
+    if in_memory_config.get("is_paused", False): # Check the pause flag
+        logging.info("Scraper is currently paused. Not starting a new run.")
+        return {"message": "Scraper is currently paused."}
+
     current_date = in_memory_config["date"]
     current_start = in_memory_config["start"]
     current_end = in_memory_config["end"]
@@ -113,6 +126,25 @@ def run_scraper_background():
 
     threading.Thread(target=scraper_thread).start()
     return {"message": "Scraper started in background"}
+
+# NEW: Endpoint to toggle the scraper pause state
+@app.get("/toggle-scraper-pause")
+def toggle_scraper_pause():
+    global in_memory_config
+    
+    current_state = in_memory_config.get("is_paused", False)
+    new_state = not current_state
+    in_memory_config["is_paused"] = new_state
+
+    try:
+        with open(RUNTIME_CONFIG_FILE, "w") as f:
+            json.dump(in_memory_config, f)
+        logging.info(f"Scraper pause state toggled to {new_state} and saved to file: {in_memory_config}")
+        status_message = "paused" if new_state else "resumed"
+        return {"message": f"Scraper has been {status_message}.", "is_paused": new_state, "current_config": in_memory_config}
+    except Exception as e:
+        logging.error(f"Failed to save pause state to file: {e}")
+        return {"error": f"Failed to save pause state: {e}", "is_paused": new_state, "current_config": in_memory_config}
 
 
 if __name__ == "__main__":

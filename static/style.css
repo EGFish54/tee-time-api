@@ -88,3 +88,13 @@ button:hover {
     white-space: pre-wrap; /* Preserve formatting */
     word-wrap: break-word; /* Break long words */
 }
+
+/* NEW: Styles for Pause/Resume button states */
+button.bg-green-600 {
+    background-color: #28a745; /* A nice green */
+}
+
+button.bg-red-600 {
+    background-color: #dc3545; /* A nice red */
+}
+/* END NEW */
