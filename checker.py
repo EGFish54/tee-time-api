@@ -79,7 +79,12 @@ def check_tee_times(date_str, start_time_str, end_time_str):
         check_date_obj = datetime.strptime(date_str, "%m/%d/%Y")
         CHECK_DAY = str(check_date_obj.day)
 
-        with sync_playwright() as p:
+    except ValueError as e:
+        logging.error(f"Configuration parsing error: {e}. Please check date/time formats.")
+        return [f"Error: Invalid date/time format in config: {e}"]
+
+    with sync_playwright() as p:
+        try:
             browser = p.chromium.launch(
                 headless=True,
                 args=[
@@ -99,21 +104,12 @@ def check_tee_times(date_str, start_time_str, end_time_str):
             page.goto(LOGIN_URL)
             page.wait_for_load_state('networkidle')
 
-            # --- IMPORTANT CHANGE HERE: Use the more robust login selectors ---
-            logging.info("Attempting to fill login form with 'lgUserName' selectors...")
+            # Attempting to fill login form with 'lgUserName' selectors...
             try:
-                # Wait for the username field, as this is the first interaction
                 page.wait_for_selector("#lgUserName", state='visible', timeout=60000)
-                
-                logging.info("Filling username and password.")
                 page.fill("#lgUserName", USERNAME)
                 page.fill("#lgPassword", PASSWORD)
-                
-                logging.info("Clicking login button.")
                 page.click("#lgLoginButton")
-                
-                # Wait for the URL to change, indicating successful login/redirection
-                logging.info("Waiting for URL change after login button click.")
                 page.wait_for_url(lambda url: url != LOGIN_URL, timeout=60000)
                 take_screenshot(page, "after_successful_initial_login_redirect")
                 logging.info("✅ Initial login successful and redirected.")
@@ -122,30 +118,25 @@ def check_tee_times(date_str, start_time_str, end_time_str):
                 logging.error(f"❌ Failed initial login using 'lgUserName' strategy: {e}")
                 take_screenshot(page, "failed_initial_login")
                 return [f"Error: Initial login failed: {e}"]
-            # --- END IMPORTANT CHANGE ---
 
-            # --- After initial login, check for "ENTER MEMBER AREA" or proceed ---
+            # After initial login, check for "ENTER MEMBER AREA" or proceed
             member_area_button_selector = "button:has-text('ENTER MEMBER AREA')"
-
-            # Check if we landed on the "ENTER MEMBER AREA" page
             if page.locator(member_area_button_selector).is_visible():
                 logging.info("✅ 'ENTER MEMBER AREA' button found after initial login. Clicking to proceed.")
                 page.click(member_area_button_selector, timeout=30000)
                 page.wait_for_load_state("networkidle", timeout=60000)
                 take_screenshot(page, "after_enter_member_area_click")
-
                 logging.info("➡️ Navigating to Member Central page after bypass.")
                 page.goto("https://www.prestonwood.com/member-central-18.html", wait_until="networkidle", timeout=90000)
                 take_screenshot(page, "after_member_central_navigation")
             else:
                 logging.info("No 'ENTER MEMBER AREA' button found. Assuming direct access to member area or proceeding as normal.")
-            # --- END LOGIN LOGIC (now it's a 2-stage process if needed) ---
 
-            # 3. Navigate to tee sheet
-            logging.info(f"Navigating to tee sheet page: {TEE_SHEET_URL}")
+            # 2. Navigate to tee sheet
+            logging.info(f"➡️ Navigating to tee sheet page: {TEE_SHEET_URL}")
             page.goto(TEE_SHEET_URL)
             page.wait_for_load_state('networkidle')
-
+            
             # Wait for the specific element that indicates page is loaded
             # This selector was previously 'select#dnn_ctr433_ModuleContent_TeeTime_ddlCourse'
             # Let's use a more general iframe selector first
@@ -163,7 +154,7 @@ def check_tee_times(date_str, start_time_str, end_time_str):
                 page.wait_for_timeout(5000) # Wait 5 seconds for elements to settle
                 take_screenshot(page, "after_iframe_network_idle_and_wait")
 
-                # 4. Select the correct date from the calendar
+                # 3. Select the correct date from the calendar
                 logging.info(f"📅 Attempting to select date: {date_str} (Day: {CHECK_DAY}) by waiting for #member_select_calendar1 within iframe.")
                 iframe.wait_for_selector("#member_select_calendar1", timeout=60000)
                 take_screenshot(page, "before_date_selection_in_iframe")
@@ -189,22 +180,16 @@ def check_tee_times(date_str, start_time_str, end_time_str):
 
                 logging.info("🔄 Attempting to set course to '-ALL-' using robust search from main.py logic.")
                 course_selected = False
-                # Get all select elements within the iframe
                 select_elements = iframe.query_selector_all("select") 
                 
                 for select_el_handle in select_elements:
                     try:
-                        # Get the outerHTML of the select element to inspect its options
                         select_html = select_el_handle.evaluate("node => node.outerHTML")
-                        
-                        # Check if the "-ALL-" option exists within this select element
-                        # The 'value' could be different from '-ALL-', but 'label' (visible text) is usually '-ALL-'
                         if "-ALL-" in select_html: 
-                            # If we find it, select it by its label
                             select_el_handle.select_option(label="-ALL-")
                             logging.info("✅ Course set to '-ALL-'.")
                             course_selected = True
-                            break # Exit loop once found and selected
+                            break
                     except Exception as select_e:
                         logging.warning(f"Could not process select element or select option: {select_e}")
                 
@@ -212,14 +197,22 @@ def check_tee_times(date_str, start_time_str, end_time_str):
                     logging.warning("❌ '-ALL-' course option not found after iterating through all select elements.")
                     take_screenshot(page, "course_all_not_found_robust_search")
                 
-                # Wait for page to settle after changing dropdown
                 iframe.wait_for_load_state("networkidle", timeout=90000)
                 take_screenshot(page, "after_course_select_robust_search")
                 
+                # --- IMPORTANT CHANGE: Wait for actual tee time rows to appear ---
+                logging.info("⏳ Waiting for tee time rows (div.rwdTr) to be visible in the tee sheet table.")
+                iframe.wait_for_selector("div.member_sheet_table div.rwdTr", state='visible', timeout=60000)
+                logging.info("✅ At least one tee time row is visible. Proceeding to parse HTML.")
+                # --- END IMPORTANT CHANGE ---
+
                 logging.info("📄 Parsing tee sheet content.")
-                iframe.wait_for_selector("div.member_sheet_table", timeout=60000)
+                # No need to wait for div.member_sheet_table again, as we just waited for its child rows
                 tee_sheet_html = iframe.content()
                 
+                # DEBUG: Temporarily log the full HTML to Render logs for inspection
+                # logging.info(f"DEBUG: Full Tee Sheet HTML Content:\n{tee_sheet_html[:10000]}...") # Log first 10000 chars
+
                 soup = BeautifulSoup(tee_sheet_html, "html.parser")
                 tee_sheet_table = soup.find("div", class_="member_sheet_table")
 
@@ -231,6 +224,7 @@ def check_tee_times(date_str, start_time_str, end_time_str):
                 logging.info("✅ Tee sheet container found in HTML.")
                 
                 found = []
+                # Use the same parsing logic as main.py
                 for row in tee_sheet_table.find_all("div", class_="rwdTr"):
                     cols = row.find_all("div", class_="rwdTd")
                     if len(cols) >= 5:
@@ -283,18 +277,18 @@ def check_tee_times(date_str, start_time_str, end_time_str):
                     return found # Return all found times even if no new ones
 
 
-    except Exception as e:
-        logging.error(f"💥 Error during scraping: {e}")
-        error_message = f"An error occurred during scraping: {e}"
-        take_screenshot(page, "error_state")
-        
-        with open(CACHE_FILE, "w") as cache_file:
-            json.dump({"results": [error_message]}, cache_file)
-        return [error_message]
-    finally:
-        if browser:
-            browser.close()
-            logging.info("Browser closed.")
+        except Exception as e:
+            logging.error(f"💥 Error during scraping: {e}")
+            error_message = f"An error occurred during scraping: {e}"
+            take_screenshot(page, "error_state")
+            
+            with open(CACHE_FILE, "w") as cache_file:
+                json.dump({"results": [error_message]}, cache_file)
+            return [error_message]
+        finally:
+            if browser:
+                browser.close()
+                logging.info("Browser closed.")
 
 
 def get_cached_tee_times():
