@@ -80,18 +80,16 @@ def check_tee_times(date_str, start_time_str, end_time_str):
         CHECK_DAY = str(check_date_obj.day)
 
         with sync_playwright() as p:
-            # --- IMPORTANT: ADD THESE ARGUMENTS TO REDUCE MEMORY USAGE ---
             browser = p.chromium.launch(
                 headless=True,
                 args=[
-                    '--no-sandbox',             # Required for Render
-                    '--disable-setuid-sandbox', # Required for Render
-                    '--disable-dev-shm-usage',  # Reduces memory use by disabling /dev/shm
-                    '--no-zygote',              # Might help with memory
-                    '--single-process'          # Can reduce overhead
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--no-zygote',
+                    '--single-process'
                 ]
             )
-            # --- END IMPORTANT ADDITION ---
             
             page = browser.new_page()
             page.set_default_timeout(60000) # 60 seconds timeout for page operations
@@ -101,113 +99,188 @@ def check_tee_times(date_str, start_time_str, end_time_str):
             page.goto(LOGIN_URL)
             page.wait_for_load_state('networkidle')
 
-            # 2. Fill login form
-            logging.info("Filling login form...")
-            page.fill('input#ctl00_ContentPlaceHolder1_Login1_UserName', USERNAME)
-            page.fill('input#ctl00_ContentPlaceHolder1_Login1_Password', PASSWORD)
-            page.click('input#ctl00_ContentPlaceHolder1_Login1_LoginButton')
-            page.wait_for_load_state('networkidle')
+            # --- IMPORTANT CHANGE HERE: Use the more robust login selectors ---
+            logging.info("Attempting to fill login form with 'lgUserName' selectors...")
+            try:
+                # Wait for the username field, as this is the first interaction
+                page.wait_for_selector("#lgUserName", state='visible', timeout=60000)
+                
+                logging.info("Filling username and password.")
+                page.fill("#lgUserName", USERNAME)
+                page.fill("#lgPassword", PASSWORD)
+                
+                logging.info("Clicking login button.")
+                page.click("#lgLoginButton")
+                
+                # Wait for the URL to change, indicating successful login/redirection
+                logging.info("Waiting for URL change after login button click.")
+                page.wait_for_url(lambda url: url != LOGIN_URL, timeout=60000)
+                take_screenshot(page, "after_successful_initial_login_redirect")
+                logging.info("✅ Initial login successful and redirected.")
 
-            if "Password incorrect" in page.content() or "Login failed" in page.content():
-                error_msg = "Login failed: Incorrect username or password."
-                logging.error(error_msg)
-                take_screenshot(page, "login_failed")
-                with open(CACHE_FILE, "w") as cache_file:
-                    json.dump({"results": [error_msg]}, cache_file)
-                return [error_msg]
-            
+            except Exception as e:
+                logging.error(f"❌ Failed initial login using 'lgUserName' strategy: {e}")
+                take_screenshot(page, "failed_initial_login")
+                return [f"Error: Initial login failed: {e}"]
+            # --- END IMPORTANT CHANGE ---
+
+            # --- After initial login, check for "ENTER MEMBER AREA" or proceed ---
+            member_area_button_selector = "button:has-text('ENTER MEMBER AREA')"
+
+            # Check if we landed on the "ENTER MEMBER AREA" page
+            if page.locator(member_area_button_selector).is_visible():
+                logging.info("✅ 'ENTER MEMBER AREA' button found after initial login. Clicking to proceed.")
+                page.click(member_area_button_selector, timeout=30000)
+                page.wait_for_load_state("networkidle", timeout=60000)
+                take_screenshot(page, "after_enter_member_area_click")
+
+                logging.info("➡️ Navigating to Member Central page after bypass.")
+                page.goto("https://www.prestonwood.com/member-central-18.html", wait_until="networkidle", timeout=90000)
+                take_screenshot(page, "after_member_central_navigation")
+            else:
+                logging.info("No 'ENTER MEMBER AREA' button found. Assuming direct access to member area or proceeding as normal.")
+            # --- END LOGIN LOGIC (now it's a 2-stage process if needed) ---
+
             # 3. Navigate to tee sheet
             logging.info(f"Navigating to tee sheet page: {TEE_SHEET_URL}")
             page.goto(TEE_SHEET_URL)
             page.wait_for_load_state('networkidle')
 
             # Wait for the specific element that indicates page is loaded
-            WebDriverWait(page, 30).until(
-                lambda p: p.query_selector("select#dnn_ctr433_ModuleContent_TeeTime_ddlCourse")
-            )
-            
-            # 4. Select the correct date from the calendar
-            logging.info(f"Selecting date: {date_str} (day {CHECK_DAY})...")
-            # Click the calendar icon to open the date picker
-            page.click('img#dnn_ctr433_ModuleContent_TeeTime_imgCalendar')
+            # This selector was previously 'select#dnn_ctr433_ModuleContent_TeeTime_ddlCourse'
+            # Let's use a more general iframe selector first
+            logging.info("🔍 Searching for iframe 'ifrforetees'.")
+            iframe_handle = page.wait_for_selector("iframe#ifrforetees", timeout=60000)
+            if iframe_handle:
+                logging.info("✅ Found iframe 'ifrforetees'. Waiting for iframe content to load (domcontentloaded).")
+                iframe = iframe_handle.content_frame()
+                iframe.wait_for_load_state("domcontentloaded", timeout=90000)
+                page.wait_for_timeout(2000) # Small wait
+                take_screenshot(page, "after_iframe_dom_load")
 
-            # Wait for the calendar to be visible (e.g., a known element within the calendar)
-            page.wait_for_selector('table.RadCalendar_Default')
+                logging.info("✅ Iframe content loaded (domcontentloaded). Waiting for networkidle in iframe.")
+                iframe.wait_for_load_state("networkidle", timeout=90000)
+                page.wait_for_timeout(5000) # Wait 5 seconds for elements to settle
+                take_screenshot(page, "after_iframe_network_idle_and_wait")
 
-            # Navigate calendar to the correct month/year if needed (not implemented here, assumes current month/year view)
-            # Find the day element and click it
-            # This XPath assumes a specific structure, might need adjustment if calendar HTML changes
-            try:
-                # Find the exact day cell. This might be fragile and need robust selector.
-                # Example: page.click(f'//td[contains(@class, "rcWeekend") or contains(@class, "rcWeekDay")]/a[text()="{CHECK_DAY}"]')
-                # A more robust approach would be to iterate through the calendar cells
-                page.evaluate(f"""
-                    Array.from(document.querySelectorAll('table.RadCalendar_Default td')).forEach(td => {{
-                        if (td.querySelector('a') && td.querySelector('a').textContent === '{CHECK_DAY}') {{
-                            td.querySelector('a').click();
-                        }}
-                    }});
-                """)
-                logging.info(f"Clicked on day {CHECK_DAY}")
-            except Exception as e:
-                logging.error(f"Could not click on day {CHECK_DAY} in calendar: {e}")
-                take_screenshot(page, "calendar_error")
-                error_msg = f"Failed to select date {date_str} on calendar."
-                with open(CACHE_FILE, "w") as cache_file:
-                    json.dump({"results": [error_msg]}, cache_file)
-                return [error_msg]
-            
-            page.wait_for_load_state('networkidle') # Wait for new tee times to load after date selection
+                # 4. Select the correct date from the calendar
+                logging.info(f"📅 Attempting to select date: {date_str} (Day: {CHECK_DAY}) by waiting for #member_select_calendar1 within iframe.")
+                iframe.wait_for_selector("#member_select_calendar1", timeout=60000)
+                take_screenshot(page, "before_date_selection_in_iframe")
+                
+                logging.info(f"📆 Clicking on target date: {CHECK_DAY}")
+                try:
+                    iframe.locator(f"td a:has-text('{CHECK_DAY}')").first.click(timeout=30000)
+                except Exception as click_e:
+                    logging.warning(f"Could not click date '{CHECK_DAY}' directly: {click_e}. Trying alternative.")
+                    iframe.locator(f"//td[contains(@class, 'ui-datepicker-week-end') or contains(@class, 'ui-datepicker-unselectable') or contains(@class, 'ui-datepicker-current-day')]//a[text()='{CHECK_DAY}']").click(timeout=30000)
 
-            # 5. Extract tee times using BeautifulSoup
-            logging.info("Extracting tee times...")
-            soup = BeautifulSoup(page.content(), 'html.parser')
-            tee_time_table = soup.find('table', {'class': 'TeeTimeGrid'})
-            
-            found = []
-            if tee_time_table:
-                rows = tee_time_table.find_all('tr', class_=['rgRow', 'rgAltRow'])
-                for row in rows:
-                    cols = row.find_all('td')
-                    if len(cols) > 4: # Ensure there are enough columns
-                        time_text = cols[0].get_text(strip=True)
-                        open_slots_text = cols[4].get_text(strip=True)
+                take_screenshot(page, "after_date_click_in_iframe")
+
+                iframe.wait_for_load_state("networkidle", timeout=90000)
+                page.wait_for_timeout(5000) # Wait 5 seconds for elements to settle
+                take_screenshot(page, "after_date_selection_refresh_iframe_and_wait")
+
+                logging.info("📄 Waiting for tee sheet content to be stable before course selection.")
+                # Ensure the tee sheet table is present and stable *before* attempting course dropdown
+                iframe.wait_for_selector("div.member_sheet_table", state='visible', timeout=60000)
+                logging.info("✅ Tee sheet table visible. Proceeding to course selection.")
+
+
+                logging.info("🔄 Attempting to set course to '-ALL-' using robust search from main.py logic.")
+                course_selected = False
+                # Get all select elements within the iframe
+                select_elements = iframe.query_selector_all("select") 
+                
+                for select_el_handle in select_elements:
+                    try:
+                        # Get the outerHTML of the select element to inspect its options
+                        select_html = select_el_handle.evaluate("node => node.outerHTML")
                         
+                        # Check if the "-ALL-" option exists within this select element
+                        # The 'value' could be different from '-ALL-', but 'label' (visible text) is usually '-ALL-'
+                        if "-ALL-" in select_html: 
+                            # If we find it, select it by its label
+                            select_el_handle.select_option(label="-ALL-")
+                            logging.info("✅ Course set to '-ALL-'.")
+                            course_selected = True
+                            break # Exit loop once found and selected
+                    except Exception as select_e:
+                        logging.warning(f"Could not process select element or select option: {select_e}")
+                
+                if not course_selected:
+                    logging.warning("❌ '-ALL-' course option not found after iterating through all select elements.")
+                    take_screenshot(page, "course_all_not_found_robust_search")
+                
+                # Wait for page to settle after changing dropdown
+                iframe.wait_for_load_state("networkidle", timeout=90000)
+                take_screenshot(page, "after_course_select_robust_search")
+                
+                logging.info("📄 Parsing tee sheet content.")
+                iframe.wait_for_selector("div.member_sheet_table", timeout=60000)
+                tee_sheet_html = iframe.content()
+                
+                soup = BeautifulSoup(tee_sheet_html, "html.parser")
+                tee_sheet_table = soup.find("div", class_="member_sheet_table")
+
+                if not tee_sheet_table:
+                    logging.warning("⚠️ Tee sheet container not found in HTML. Check selector or page load.")
+                    take_screenshot(page, "error_tee_sheet_table_missing")
+                    return ["No tee sheet table found."]
+
+                logging.info("✅ Tee sheet container found in HTML.")
+                
+                found = []
+                for row in tee_sheet_table.find_all("div", class_="rwdTr"):
+                    cols = row.find_all("div", class_="rwdTd")
+                    if len(cols) >= 5:
                         try:
-                            slot_time = datetime.strptime(time_text, "%I:%M %p").time()
-                            # Check if within time range and slots are open
-                            if START_TIME <= slot_time <= END_TIME and "Open" in open_slots_text:
-                                num_open = open_slots_text.split(" ")[0] # Gets the number before "Open"
-                                course_name = cols[2].get_text(strip=True)
-                                found.append(f"{time_text} - {course_name} - {num_open} slots open")
+                            time_element = cols[0].find("div", class_="time_slot") or cols[0].find("a", class_="teetime_button")
+                            time_text = time_element.get_text(strip=True) if time_element else ""
+                            course = cols[2].get_text(strip=True)
+                            open_slots_text = cols[4].get_text(strip=True)
+
+                            row_time_obj = datetime.strptime(time_text, "%I:%M %p").time()
+
+                            if START_TIME <= row_time_obj <= END_TIME and "Open" in open_slots_text:
+                                num_open = open_slots_text.split(" ")[0]
+                                msg = f"{time_text} - {course} - {num_open} slots open"
+                                found.append(msg)
                         except ValueError:
-                            # Skip rows that don't have a valid time format
                             continue
-            
-            if not found:
-                found.append(f"No tee times found for {date_str} between {start_time_str} and {end_time_str}.")
-            
-            # Cache results
-            with open(CACHE_FILE, "w") as cache_file:
-                json.dump({"results": found}, cache_file)
-            
-            # Check for new times and send email
-            previous_times = []
-            if os.path.exists(LOG_FILE):
-                with open(LOG_FILE, "r") as f:
-                    previous_times = [line.strip() for line in f.readlines()]
-            
-            new_times = [t for t in found if t not in previous_times]
-            
-            if new_times:
-                logging.info("✅ New tee times found:\\n" + "\\n".join(new_times))
-                with open(LOG_FILE, "w") as f:
-                    f.write("\n".join(found)) # Overwrite log with current found times
-                send_email("New Tee Times Available", "\n".join(new_times))
-                return found # Return all found times, not just new ones, for consistency with UI
-            else:
-                logging.info("🟢 No new tee times found (or no changes since last check).")
-                return found # Return all found times even if no new ones
+                        except IndexError:
+                            continue
+
+                previous = []
+                if os.path.exists(CACHE_FILE):
+                    try:
+                        with open(CACHE_FILE, "r") as f:
+                            previous_data = json.load(f)
+                            previous = previous_data.get("results", [])
+                    except json.JSONDecodeError:
+                        logging.warning(f"Malformed {CACHE_FILE}, starting fresh for previous times.")
+                        previous = []
+                
+                if "No new tee times" in previous and len(previous) > 1:
+                    previous = [item for item in previous if item != "No new tee times"]
+
+                new_times = [t for t in found if t not in previous]
+
+                current_results = found if found else ["No new tee times found for the selected criteria."]
+                
+                with open(CACHE_FILE, "w") as cache_file:
+                    json.dump({"results": current_results}, cache_file)
+
+
+                if new_times:
+                    logging.info("✅ New tee times found:\n" + "\\n".join(new_times))
+                    with open(LOG_FILE, "w") as f:
+                        f.write("\n".join(found)) # Overwrite log with current found times
+                    send_email("New Tee Times Available", "\n".join(new_times))
+                    return found # Return all found times, not just new ones, for consistency with UI
+                else:
+                    logging.info("🟢 No new tee times found (or no changes since last check).")
+                    return found # Return all found times even if no new ones
 
 
     except Exception as e:
