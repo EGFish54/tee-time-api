@@ -91,9 +91,10 @@ def get_config():
                 if "is_paused" not in current_saved_config:
                     current_saved_config["is_paused"] = DEFAULT_CONFIG["is_paused"]
                 return {"current_config": current_saved_config}
-            except Exception as e:
-                logging.error(f"Failed to load runtime config for /get endpoint: {e}")
-                return {"current_config": in_memory_config}
+        # FIX: Corrected indentation for this except block
+        except Exception as e:
+            logging.error(f"Failed to load runtime config for /get endpoint: {e}")
+            return {"current_config": in_memory_config}
     else:
         return {"current_config": in_memory_config}
 
