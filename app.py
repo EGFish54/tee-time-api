@@ -1,4 +1,4 @@
-    from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query
     from fastapi.staticfiles import StaticFiles
     # Removed HTMLResponse import as it's no longer needed for the root route
     from checker import check_tee_times, get_cached_tee_times
