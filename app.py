@@ -1,90 +1,120 @@
+    from fastapi import FastAPI, Query
+    from fastapi.staticfiles import StaticFiles
+    # Removed HTMLResponse import as it's no longer needed for the root route
+    from checker import check_tee_times, get_cached_tee_times
+    import subprocess
+    import os
+    import json
+    import threading
+    from scraper import run_scraper
+    import logging
 
-from fastapi import FastAPI, Query
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
-from checker import check_tee_times, get_cached_tee_times
-import subprocess
-import os
-import json
-import threading
-from scraper import run_scraper
+    # Configure logging for app.py as well
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 
-# Install Playwright browser at runtime
-try:
-    subprocess.run(["playwright", "install", "chromium"], check=True)
-except Exception as e:
-    print(f"Failed to install Playwright at runtime: {e}")
-
-CONFIG_FILE = "config.json"
-
-# Ensure config.json exists with defaults
-if not os.path.exists(CONFIG_FILE):
-    with open(CONFIG_FILE, "w") as f:
-        json.dump({
-            "date": "07/23/2025",
-            "start": "08:00 AM",
-            "end": "09:00 AM"
-        }, f)
-
-# In-memory config backup
-in_memory_config = {
-    "date": "07/23/2025",
-    "start": "08:00 AM",
-    "end": "09:00 AM"
-}
-
-app = FastAPI()
-
-# Mount static file directory
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-@app.get("/", response_class=HTMLResponse)
-def serve_ui():
-    with open("static/index.html", "r") as f:
-        return f.read()
-
-@app.get("/set")
-def set_time(
-    date: str = Query(..., description="Format: MM/DD/YYYY"),
-    start: str = Query(..., description="Format: HH:MM AM/PM"),
-    end: str = Query(..., description="Format: HH:MM AM/PM")
-):
+    # Install Playwright browser at runtime (only if it hasn't been installed by postBuildCommand)
     try:
-        with open(CONFIG_FILE, "w") as f:
-            json.dump({"date": date, "start": start, "end": end}, f)
-        in_memory_config.update({"date": date, "start": start, "end": end})
-        return {"message": "Time window updated successfully"}
+        subprocess.run(["playwright", "install", "chromium"], check=True)
     except Exception as e:
-        return {"error": str(e)}
+        logging.error(f"Failed to install Playwright at runtime: {e}")
 
-@app.get("/get")
-def get_time_window():
-    try:
-        with open(CONFIG_FILE, "r") as f:
-            config = json.load(f)
-        return {"current_config": config}
-    except Exception as e:
-        return {"error": str(e)}
+    # Use a path on Render's persistent disk if available, otherwise fallback for local testing
+    # This path assumes you have a persistent disk mounted at /var/data on Render
+    RUNTIME_CONFIG_FILE = "/var/data/current_config.json"
+    # Ensure the directory for the config file exists
+    os.makedirs(os.path.dirname(RUNTIME_CONFIG_FILE), exist_ok=True)
 
-@app.get("/check")
-def check():
-    try:
-        results = get_cached_tee_times()
-        return {"results": results}
-    except Exception as e:
-        return {"error": str(e)}
 
-@app.get("/run-scraper")
-def run_scraper_background():
-    def scraper_thread():
-        run_scraper(
-            in_memory_config["date"],
-            in_memory_config["start"],
-            in_memory_config["end"]
-        )
-    threading.Thread(target=scraper_thread).start()
-    return {"message": "Scraper started in background"}
+    DEFAULT_CONFIG = {
+        "date": "07/23/2025",
+        "start": "08:00 AM",
+        "end": "09:00 AM"
+    }
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    in_memory_config = DEFAULT_CONFIG.copy()
+
+    # Try to load config from the runtime file (if it exists)
+    if os.path.exists(RUNTIME_CONFIG_FILE):
+        try:
+            with open(RUNTIME_CONFIG_FILE, "r") as f:
+                loaded_config = json.load(f)
+                in_memory_config.update(loaded_config)
+                logging.info(f"Loaded config from {RUNTIME_CONFIG_FILE}: {in_memory_config}")
+        except json.JSONDecodeError:
+            logging.warning(f"Error decoding JSON from {RUNTIME_CONFIG_FILE}. Using default config.")
+        except Exception as e:
+            logging.error(f"Failed to load runtime config from {RUNTIME_CONFIG_FILE}: {e}. Using default config.")
+
+
+    app = FastAPI()
+
+    # Mount static file directory to serve index.html, style.css, script.js
+    # html=True serves index.html if the directory is requested (e.g., /static/)
+    app.mount("/static", StaticFiles(directory="static", html=True), name="static")
+
+    # The root route now simply returns a status message,
+    # the UI is accessed via /static/ or /static/index.html
+    @app.get("/")
+    def root():
+        return {"status": "Tee Time API is live. Access UI at /static/index.html or /static/"}
+
+    @app.get("/set")
+    def set_config(date: str = Query(...), start: str = Query(...), end: str = Query(...)):
+        global in_memory_config
+
+        in_memory_config["date"] = date
+        in_memory_config["start"] = start
+        in_memory_config["end"] = end
+
+        try:
+            with open(RUNTIME_CONFIG_FILE, "w") as f:
+                json.dump(in_memory_config, f)
+            logging.info(f"Runtime config updated and saved to file: {in_memory_config}")
+            return {"message": "Configuration updated successfully", "current_config": in_memory_config}
+        except Exception as e:
+            logging.error(f"Failed to save runtime config to file: {e}")
+            return {"error": f"Configuration updated in memory but failed to save to file: {e}", "current_config": in_memory_config}
+
+
+    @app.get("/get")
+    def get_config():
+        if os.path.exists(RUNTIME_CONFIG_FILE):
+            try:
+                with open(RUNTIME_CONFIG_FILE, "r") as f:
+                    current_saved_config = json.load(f)
+                    return {"current_config": current_saved_config}
+            except Exception as e:
+                logging.error(f"Failed to load runtime config for /get endpoint: {e}")
+                return {"current_config": in_memory_config}
+        else:
+            return {"current_config": in_memory_config}
+
+
+    @app.get("/check")
+    def check():
+        try:
+            results = get_cached_tee_times()
+            return {"results": results}
+        except Exception as e:
+            logging.error(f"Error checking cached results: {e}")
+            return {"error": str(e)}
+
+    @app.get("/run-scraper")
+    def run_scraper_background():
+        current_date = in_memory_config["date"]
+        current_start = in_memory_config["start"]
+        current_end = in_memory_config["end"]
+
+        logging.info(f"Triggered scraper run with config: Date={current_date}, Start={current_start}, End={current_end}")
+
+        def scraper_thread():
+            run_scraper(current_date, current_start, current_end)
+
+        threading.Thread(target=scraper_thread).start()
+        return {"message": "Scraper started in background"}
+
+
+    if __name__ == "__main__":
+        import uvicorn
+        uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    
