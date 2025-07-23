@@ -10,34 +10,28 @@
     <div class="container">
         <h1>Set Tee Time Window</h1>
 
-        <!-- The form is kept, but the button will prevent default submission via JS -->
         <form id="teeTimeForm">
             <div class="input-group">
-                <label for="date">Date (MM/DD/YYYY):</label>
-                <input type="text" id="date" name="date" placeholder="e.g., 07/23/2025" required>
+                <label for="date">Date:</label>
+                <!-- Changed type to 'date' -->
+                <input type="date" id="date" name="date" required>
             </div>
 
             <div class="input-group">
-                <label for="start">Start Time (HH:MM AM/PM):</label>
-                <input type="text" id="start" name="start" placeholder="e.g., 01:00 PM" required>
+                <label for="start">Start Time:</label>
+                <!-- Changed type to 'time' -->
+                <input type="time" id="start" name="start" required>
             </div>
 
             <div class="input-group">
-                <label for="end">End Time (HH:MM AM/PM):</label>
-                <input type="text" id="end" name="end" placeholder="e.g., 02:00 PM" required>
+                <label for="end">End Time:</label>
+                <!-- Changed type to 'time' -->
+                <input type="time" id="end" name="end" required>
             </div>
 
             <button id="updateButton" type="submit">Update Config</button>
         </form>
 
-        <!-- NEW: Scraper Pause/Resume Section -->
-        <div class="input-group" style="margin-top: 20px;">
-            <button id="togglePauseButton">Loading Scraper Status...</button>
-        </div>
-        <p id="scraperStatus" style="text-align: center; font-weight: bold; margin-top: 10px;"></p>
-        <!-- END NEW -->
-
-        <!-- Message display area -->
         <div id="message" class="message"></div>
 
         <h2>Current Config:</h2>
