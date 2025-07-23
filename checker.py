@@ -10,8 +10,11 @@ from email.mime.multipart import MIMEMultipart
 import time
 
 # CONFIG
-USERNAME = "C399"
-PASSWORD = "Goblue8952"
+# --- IMPORTANT CHANGE: Get USERNAME and PASSWORD from environment variables ---
+USERNAME = os.getenv("PRESTONWOOD_USERNAME")
+PASSWORD = os.getenv("PRESTONWOOD_PASSWORD")
+# --- END IMPORTANT CHANGE ---
+
 LOGIN_URL = "https://www.prestonwood.com/members-login"
 TEE_SHEET_URL = "https://www.prestonwood.com/golf/tee-times-43.html"
 # CHECK_DAY will be dynamically set from date_str now
@@ -72,6 +75,13 @@ def check_tee_times(date_str, start_time_str, end_time_str):
     browser = None
     found_times = []
     
+    # NEW: Check if Prestonwood credentials are set
+    if not USERNAME or not PASSWORD:
+        error_msg = "Prestonwood login credentials (PRESTONWOOD_USERNAME, PRESTONWOOD_PASSWORD) not set as environment variables."
+        logging.error(error_msg)
+        return [error_msg]
+    # END NEW
+
     try:
         START_TIME = datetime.strptime(start_time_str, "%I:%M %p").time()
         END_TIME = datetime.strptime(end_time_str, "%I:%M %p").time()
