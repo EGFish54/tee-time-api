@@ -13,25 +13,33 @@
         <form id="teeTimeForm">
             <div class="input-group">
                 <label for="date">Date:</label>
-                <!-- Changed type to 'date' -->
+                <!-- Changed type to 'date' for calendar picker -->
                 <input type="date" id="date" name="date" required>
             </div>
 
             <div class="input-group">
                 <label for="start">Start Time:</label>
-                <!-- Changed type to 'time' -->
+                <!-- Changed type to 'time' for time picker -->
                 <input type="time" id="start" name="start" required>
             </div>
 
             <div class="input-group">
                 <label for="end">End Time:</label>
-                <!-- Changed type to 'time' -->
+                <!-- Changed type to 'time' for time picker -->
                 <input type="time" id="end" name="end" required>
             </div>
 
             <button id="updateButton" type="submit">Update Config</button>
         </form>
 
+        <!-- Scraper Pause/Resume Section -->
+        <div class="input-group" style="margin-top: 20px;">
+            <button id="togglePauseButton">Loading Scraper Status...</button>
+        </div>
+        <p id="scraperStatus" style="text-align: center; font-weight: bold; margin-top: 10px;"></p>
+        <!-- End Scraper Pause/Resume Section -->
+
+        <!-- Message display area -->
         <div id="message" class="message"></div>
 
         <h2>Current Config:</h2>

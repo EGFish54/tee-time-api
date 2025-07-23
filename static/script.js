@@ -8,6 +8,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const messageDiv = document.getElementById("message");
     const currentConfigP = document.getElementById("currentConfig");
 
+    // Elements for pause/resume functionality
+    const togglePauseButton = document.getElementById("togglePauseButton");
+    const scraperStatusP = document.getElementById("scraperStatus");
+
     // Helper to convert MM/DD/YYYY to YYYY-MM-DD for date input value
     function convertDateToInputFormat(dateStr) {
         if (!dateStr) return '';
@@ -52,7 +56,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return `${h.toString().padStart(2, '0')}:${minutes} ${period}`;
     }
 
-    // Function to fetch and display current config
+    // Function to fetch and display current config (updated to include pause status)
     async function fetchCurrentConfig() {
         try {
             const response = await fetch(`${API_BASE_URL}/get`);
@@ -64,13 +68,45 @@ document.addEventListener("DOMContentLoaded", () => {
                 dateInput.value = convertDateToInputFormat(config.date);
                 startTimeInput.value = convertTimeToInputFormat(config.start);
                 endTimeInput.value = convertTimeToInputFormat(config.end);
+
+                // Update pause/resume button and status
+                updatePauseStatus(config.is_paused);
             } else {
                 currentConfigP.textContent = `Error fetching config: ${data.error || 'Unknown error'}`;
+                // Handle error for pause status as well
+                updatePauseStatus(false, true); // Assume not paused, show error
             }
         } catch (error) {
             currentConfigP.textContent = `Network error fetching config: ${error.message}`;
             console.error("Error fetching current config:", error);
+            // Handle network error for pause status
+            updatePauseStatus(false, true); // Assume not paused, show error
         }
+    }
+
+    // Helper to update the pause/resume button and status text
+    function updatePauseStatus(isPaused, isError = false) {
+        if (isError) {
+            togglePauseButton.textContent = "Error loading status";
+            scraperStatusP.textContent = "Could not load scraper status.";
+            togglePauseButton.disabled = true; // Disable button on error
+            return;
+        }
+
+        if (isPaused) {
+            togglePauseButton.textContent = "Resume Scraper";
+            togglePauseButton.classList.remove("bg-green-600"); // Example Tailwind class removal
+            togglePauseButton.classList.add("bg-red-600"); // Example Tailwind class add
+            scraperStatusP.textContent = "Scraper is PAUSED.";
+            scraperStatusP.style.color = "#dc3545"; // Red
+        } else {
+            togglePauseButton.textContent = "Pause Scraper";
+            togglePauseButton.classList.remove("bg-red-600"); // Example Tailwind class removal
+            togglePauseButton.classList.add("bg-green-600"); // Example Tailwind class add
+            scraperStatusP.textContent = "Scraper is RUNNING.";
+            scraperStatusP.style.color = "#28a745"; // Green
+        }
+        togglePauseButton.disabled = false; // Enable button once status is known
     }
 
     // Function to handle update button click
@@ -99,7 +135,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         try {
             const url = `${API_BASE_URL}/set?date=${encodedDate}&start=${encodedStart}&end=${encodedEnd}`;
-            showMessage("Updating...", ""); // Clear previous message
+            showMessage("Updating config...", ""); // Clear previous message
             const response = await fetch(url);
             const data = await response.json();
 
@@ -112,6 +148,25 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (error) {
             showMessage(`Network error: ${error.message}`, "error");
             console.error("Error updating config:", error);
+        }
+    });
+
+    // Event listener for the toggle pause button
+    togglePauseButton.addEventListener("click", async () => {
+        try {
+            showMessage("Toggling scraper status...", "");
+            const response = await fetch(`${API_BASE_URL}/toggle-scraper-pause`);
+            const data = await response.json();
+
+            if (response.ok) {
+                showMessage(data.message || "Scraper status toggled! ", "success");
+                updatePauseStatus(data.is_paused); // Update UI based on new state
+            } else {
+                showMessage(data.error || "Failed to toggle scraper status.", "error");
+            }
+        } catch (error) {
+            showMessage(`Network error toggling scraper: ${error.message}`, "error");
+            console.error("Error toggling scraper status:", error);
         }
     });
 
