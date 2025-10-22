@@ -5,6 +5,7 @@ import os
 import logging
 import smtplib
 import json
+import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import time
@@ -65,29 +66,55 @@ def retry_on_failure(max_attempts=3, delay=5):
     return decorator
 
 def send_email(subject, body):
-    if not GMAIL_USER or not GMAIL_PASS or not RECIPIENT_EMAIL:
-        logging.error("Email credentials or recipient not set. Cannot send email.")
+    """Send email using SendGrid API (works on Render free tier)"""
+    
+    # Get SendGrid API key from environment
+    SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
+    
+    if not SENDGRID_API_KEY or not RECIPIENT_EMAIL:
+        logging.error("SendGrid API key or recipient email not set. Cannot send email.")
         return
-
-    msg = MIMEMultipart()
-    msg['From'] = GMAIL_USER
-    msg['To'] = RECIPIENT_EMAIL
-    msg['Subject'] = subject
-
-    msg.attach(MIMEText(body, 'plain'))
-
+    
+    # Use GMAIL_USER as the from email, or default
+    from_email = GMAIL_USER if GMAIL_USER else "dan.chodos@gmail.com"
+    
+    # SendGrid API endpoint
+    url = "https://api.sendgrid.com/v3/mail/send"
+    
+    # Prepare the email data
+    data = {
+        "personalizations": [
+            {
+                "to": [{"email": RECIPIENT_EMAIL}],
+                "subject": subject
+            }
+        ],
+        "from": {"email": from_email},
+        "content": [
+            {
+                "type": "text/plain",
+                "value": body
+            }
+        ]
+    }
+    
+    headers = {
+        "Authorization": f"Bearer {SENDGRID_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
     try:
-        # Add timeout and better error handling for email
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as smtp:
-            smtp.login(GMAIL_USER, GMAIL_PASS)
-            smtp.send_message(msg)
-        logging.info("📧 Email sent successfully!")
-    except ConnectionError as e:
-        logging.error(f"❌ Network error sending email: {e}")
-    except smtplib.SMTPException as e:
-        logging.error(f"❌ SMTP error sending email: {e}")
+        response = requests.post(url, json=data, headers=headers, timeout=10)
+        
+        if response.status_code == 202:
+            logging.info("📧 Email sent successfully via SendGrid!")
+        else:
+            logging.error(f"❌ SendGrid API error: {response.status_code} - {response.text}")
+    
+    except requests.exceptions.RequestException as e:
+        logging.error(f"❌ Failed to send email via SendGrid: {e}")
     except Exception as e:
-        logging.error(f"❌ Failed to send email: {e}")
+        logging.error(f"❌ Unexpected error sending email: {e}")
 
 def take_screenshot(page, name):
     """Take screenshot with extended timeout and better error handling"""
