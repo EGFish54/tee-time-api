@@ -75,8 +75,8 @@ def send_email(subject, body):
         logging.error("SendGrid API key or recipient email not set. Cannot send email.")
         return
     
-    # Use GMAIL_USER as the from email, or default
-    from_email = GMAIL_USER if GMAIL_USER else "dan.chodos@gmail.com"
+    # Must use the verified sender email from SendGrid
+    from_email = "dan.chodos@gmail.com"  # This must match your verified sender in SendGrid
     
     # SendGrid API endpoint
     url = "https://api.sendgrid.com/v3/mail/send"
@@ -105,6 +105,10 @@ def send_email(subject, body):
     
     try:
         response = requests.post(url, json=data, headers=headers, timeout=10)
+        
+        # Log the full response for debugging
+        logging.info(f"SendGrid response status: {response.status_code}")
+        logging.info(f"SendGrid response body: {response.text}")
         
         if response.status_code == 202:
             logging.info("📧 Email sent successfully via SendGrid!")
