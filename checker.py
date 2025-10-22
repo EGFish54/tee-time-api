@@ -71,8 +71,8 @@ def send_email(subject, body):
     # Get SendGrid API key from environment
     SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
     
-    if not SENDGRID_API_KEY or not RECIPIENT_EMAIL:
-        logging.error("SendGrid API key or recipient email not set. Cannot send email.")
+    if not SENDGRID_API_KEY:
+        logging.error("SendGrid API key not set. Cannot send email.")
         return
     
     # Must use the verified sender email from SendGrid
@@ -81,11 +81,17 @@ def send_email(subject, body):
     # SendGrid API endpoint
     url = "https://api.sendgrid.com/v3/mail/send"
     
+    # Send to both Gmail and SMS gateway
+    recipients = [
+        {"email": "dan.chodos@gmail.com"},
+        {"email": "9196010286@vtext.com"}
+    ]
+    
     # Prepare the email data
     data = {
         "personalizations": [
             {
-                "to": [{"email": RECIPIENT_EMAIL}],
+                "to": recipients,
                 "subject": subject
             }
         ],
@@ -111,7 +117,7 @@ def send_email(subject, body):
         logging.info(f"SendGrid response body: {response.text}")
         
         if response.status_code == 202:
-            logging.info("📧 Email sent successfully via SendGrid!")
+            logging.info("📧 Email sent successfully via SendGrid to both recipients!")
         else:
             logging.error(f"❌ SendGrid API error: {response.status_code} - {response.text}")
     
