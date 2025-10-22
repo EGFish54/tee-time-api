@@ -77,20 +77,28 @@ def send_email(subject, body):
     msg.attach(MIMEText(body, 'plain'))
 
     try:
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+        # Add timeout and better error handling for email
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as smtp:
             smtp.login(GMAIL_USER, GMAIL_PASS)
             smtp.send_message(msg)
         logging.info("📧 Email sent successfully!")
+    except ConnectionError as e:
+        logging.error(f"❌ Network error sending email: {e}")
+    except smtplib.SMTPException as e:
+        logging.error(f"❌ SMTP error sending email: {e}")
     except Exception as e:
         logging.error(f"❌ Failed to send email: {e}")
 
 def take_screenshot(page, name):
+    """Take screenshot with extended timeout and better error handling"""
     screenshot_path = os.path.join(SCREENSHOT_DIR, f"{name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
     try:
-        page.screenshot(path=screenshot_path, timeout=10000)
+        # Increased timeout to 30 seconds
+        page.screenshot(path=screenshot_path, timeout=30000)
         logging.info(f"📸 Screenshot saved: {screenshot_path}")
     except Exception as e:
-        logging.error(f"❌ Failed to take screenshot: {e}")
+        # Don't let screenshot failures break the scraper
+        logging.warning(f"⚠️ Screenshot skipped ({name}): {e}")
 
 @retry_on_failure(max_attempts=2, delay=3)
 def perform_login(page):
@@ -303,6 +311,7 @@ def check_tee_times(date_str, start_time_str, end_time_str):
     
     logging.info(f"🚀 Starting check for date: {date_str}, {start_time_str}-{end_time_str}")
     browser = None
+    page = None
     
     try:
         # Validate credentials
@@ -360,12 +369,20 @@ def check_tee_times(date_str, start_time_str, end_time_str):
             found_times = parse_tee_times(iframe, page, START_TIME, END_TIME)
             
             # Step 8: Handle results
-            return handle_results(found_times)
+            result = handle_results(found_times)
+            
+            # Close browser before releasing lock
+            browser.close()
+            browser = None
+            logging.info("🔚 Browser closed successfully.")
+            
+            return result
     
     except PlaywrightTimeoutError as e:
         logging.error(f"⏰ Playwright timeout error: {e}")
         error_msg = f"Timeout error during scraping: {e}"
-        take_screenshot(page if 'page' in locals() else None, "error_timeout")
+        if page:
+            take_screenshot(page, "error_timeout")
         with open(CACHE_FILE, "w") as cache_file:
             json.dump({"results": [error_msg]}, cache_file)
         return [error_msg]
@@ -373,16 +390,21 @@ def check_tee_times(date_str, start_time_str, end_time_str):
     except Exception as e:
         logging.error(f"💥 Unexpected error during scraping: {e}")
         error_message = f"An error occurred during scraping: {e}"
-        if 'page' in locals():
+        if page:
             take_screenshot(page, "error_state")
         with open(CACHE_FILE, "w") as cache_file:
             json.dump({"results": [error_message]}, cache_file)
         return [error_message]
     
     finally:
+        # Ensure browser is closed even if there's an error
         if browser:
-            browser.close()
-            logging.info("🔚 Browser closed.")
+            try:
+                browser.close()
+                logging.info("🔚 Browser closed in finally block.")
+            except Exception as e:
+                logging.warning(f"⚠️ Error closing browser: {e}")
+        
         scraper_lock.release()
         logging.info("=" * 60)
 
