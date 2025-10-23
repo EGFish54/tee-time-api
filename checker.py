@@ -66,58 +66,34 @@ def retry_on_failure(max_attempts=3, delay=5):
     return decorator
 
 def send_email(subject, body):
-    """Send email using SendGrid API (works on Render free tier)"""
+    """Send email using Gmail SMTP with App Password"""
     
-    # Get SendGrid API key from environment
-    SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
+    # Get Gmail credentials from environment
+    gmail_user = os.getenv("GMAIL_USER")
+    gmail_app_password = os.getenv("GMAIL_APP_PASSWORD")
+    recipient = os.getenv("RECIPIENT_EMAIL")
     
-    if not SENDGRID_API_KEY:
-        logging.error("SendGrid API key not set. Cannot send email.")
+    if not gmail_user or not gmail_app_password or not recipient:
+        logging.error("Gmail credentials not set. Cannot send email.")
         return
     
-    # Must use the verified sender email from SendGrid
-    from_email = "dan.chodos@gmail.com"
-    
-    # SendGrid API endpoint
-    url = "https://api.sendgrid.com/v3/mail/send"
-    
-    # Send only to Gmail for now
-    recipients = [{"email": "dan.chodos@gmail.com"}]
-    
-    # Prepare the email data
-    data = {
-        "personalizations": [
-            {
-                "to": recipients,
-                "subject": subject
-            }
-        ],
-        "from": {"email": from_email},
-        "content": [
-            {
-                "type": "text/plain",
-                "value": body
-            }
-        ]
-    }
-    
-    headers = {
-        "Authorization": f"Bearer {SENDGRID_API_KEY}",
-        "Content-Type": "application/json"
-    }
+    msg = MIMEMultipart()
+    msg['From'] = gmail_user
+    msg['To'] = recipient
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
     
     try:
-        response = requests.post(url, json=data, headers=headers, timeout=10)
-        
-        if response.status_code == 202:
-            logging.info("📧 Email sent successfully via SendGrid!")
-        else:
-            logging.error(f"❌ SendGrid API error: {response.status_code} - {response.text}")
-    
-    except requests.exceptions.RequestException as e:
-        logging.error(f"❌ Failed to send email via SendGrid: {e}")
+        # Use Gmail's SMTP server on port 587 (allowed on Render)
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=30) as server:
+            server.starttls()  # Upgrade connection to secure
+            server.login(gmail_user, gmail_app_password)
+            server.send_message(msg)
+        logging.info("📧 Email sent successfully via Gmail!")
+    except smtplib.SMTPException as e:
+        logging.error(f"❌ SMTP error sending email: {e}")
     except Exception as e:
-        logging.error(f"❌ Unexpected error sending email: {e}")
+        logging.error(f"❌ Failed to send email: {e}")
 
 def take_screenshot(page, name):
     """Take screenshot with extended timeout and better error handling"""
