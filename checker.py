@@ -76,16 +76,13 @@ def send_email(subject, body):
         return
     
     # Must use the verified sender email from SendGrid
-    from_email = "dan.chodos@gmail.com"  # This must match your verified sender in SendGrid
+    from_email = "dan.chodos@gmail.com"
     
     # SendGrid API endpoint
     url = "https://api.sendgrid.com/v3/mail/send"
     
-    # Send to both Gmail and SMS gateway
-    recipients = [
-        {"email": "dan.chodos@gmail.com"},
-        {"email": "9196010286@vtext.com"}
-    ]
+    # Send only to Gmail for now
+    recipients = [{"email": "dan.chodos@gmail.com"}]
     
     # Prepare the email data
     data = {
@@ -112,12 +109,8 @@ def send_email(subject, body):
     try:
         response = requests.post(url, json=data, headers=headers, timeout=10)
         
-        # Log the full response for debugging
-        logging.info(f"SendGrid response status: {response.status_code}")
-        logging.info(f"SendGrid response body: {response.text}")
-        
         if response.status_code == 202:
-            logging.info("📧 Email sent successfully via SendGrid to both recipients!")
+            logging.info("📧 Email sent successfully via SendGrid!")
         else:
             logging.error(f"❌ SendGrid API error: {response.status_code} - {response.text}")
     
