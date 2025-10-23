@@ -71,15 +71,17 @@ def send_email(subject, body):
     # Get Gmail credentials from environment
     gmail_user = os.getenv("GMAIL_USER")
     gmail_app_password = os.getenv("GMAIL_APP_PASSWORD")
-    recipient = os.getenv("RECIPIENT_EMAIL")
     
-    if not gmail_user or not gmail_app_password or not recipient:
+    if not gmail_user or not gmail_app_password:
         logging.error("Gmail credentials not set. Cannot send email.")
         return
     
+    # Send to both email and SMS gateway
+    recipients = ["dan.chodos@gmail.com", "9196010286@vtext.com"]
+    
     msg = MIMEMultipart()
     msg['From'] = gmail_user
-    msg['To'] = recipient
+    msg['To'] = ", ".join(recipients)  # Multiple recipients
     msg['Subject'] = subject
     msg.attach(MIMEText(body, 'plain'))
     
@@ -88,8 +90,8 @@ def send_email(subject, body):
         with smtplib.SMTP('smtp.gmail.com', 587, timeout=30) as server:
             server.starttls()  # Upgrade connection to secure
             server.login(gmail_user, gmail_app_password)
-            server.send_message(msg)
-        logging.info("📧 Email sent successfully via Gmail!")
+            server.sendmail(gmail_user, recipients, msg.as_string())
+        logging.info("📧 Email sent successfully via Gmail to both recipients!")
     except smtplib.SMTPException as e:
         logging.error(f"❌ SMTP error sending email: {e}")
     except Exception as e:
