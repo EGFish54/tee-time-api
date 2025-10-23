@@ -76,26 +76,26 @@ def send_email(subject, body):
         logging.error("Gmail credentials not set. Cannot send email.")
         return
     
-    # Send to both email and SMS gateway
-    recipients = ["dan.chodos@gmail.com", "9196010286@vtext.com"]
+    # Send only to SMS gateway
+    recipient = "9196010286@vtext.com"
     
     msg = MIMEMultipart()
     msg['From'] = gmail_user
-    msg['To'] = ", ".join(recipients)  # Multiple recipients
+    msg['To'] = recipient
     msg['Subject'] = subject
     msg.attach(MIMEText(body, 'plain'))
     
     try:
-        # Use Gmail's SMTP server on port 587 (allowed on Render)
+        # Use Gmail's SMTP server on port 587
         with smtplib.SMTP('smtp.gmail.com', 587, timeout=30) as server:
             server.starttls()  # Upgrade connection to secure
             server.login(gmail_user, gmail_app_password)
-            server.sendmail(gmail_user, recipients, msg.as_string())
-        logging.info("📧 Email sent successfully via Gmail to both recipients!")
+            server.sendmail(gmail_user, [recipient], msg.as_string())
+        logging.info("📧 SMS notification sent successfully via Gmail!")
     except smtplib.SMTPException as e:
-        logging.error(f"❌ SMTP error sending email: {e}")
+        logging.error(f"❌ SMTP error sending SMS: {e}")
     except Exception as e:
-        logging.error(f"❌ Failed to send email: {e}")
+        logging.error(f"❌ Failed to send SMS: {e}")
 
 def take_screenshot(page, name):
     """Take screenshot with extended timeout and better error handling"""
