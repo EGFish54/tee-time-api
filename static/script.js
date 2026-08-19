@@ -4,6 +4,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const dateInput = document.getElementById("date");
     const startTimeInput = document.getElementById("start");
     const endTimeInput = document.getElementById("end");
+    const courseSelect = document.getElementById("course");
     const updateButton = document.getElementById("updateButton");
     const messageDiv = document.getElementById("message");
     const currentConfigP = document.getElementById("currentConfig");
@@ -63,11 +64,12 @@ document.addEventListener("DOMContentLoaded", () => {
             const data = await response.json();
             if (response.ok) {
                 const config = data.current_config;
-                currentConfigP.textContent = `Date: ${config.date}\nStart: ${config.start}\nEnd: ${config.end}`;
+                currentConfigP.textContent = `Date: ${config.date}\nStart: ${config.start}\nEnd: ${config.end}\nCourse: ${config.course || 'All'}`;
                 // Pre-fill input fields with current values, converting to input format
                 dateInput.value = convertDateToInputFormat(config.date);
                 startTimeInput.value = convertTimeToInputFormat(config.start);
                 endTimeInput.value = convertTimeToInputFormat(config.end);
+                courseSelect.value = config.course || 'All';
 
                 // Update pause/resume button and status
                 updatePauseStatus(config.is_paused);
@@ -117,8 +119,9 @@ document.addEventListener("DOMContentLoaded", () => {
         const date = dateInput.value; // YYYY-MM-DD
         const start = startTimeInput.value; // HH:MM (24-hour)
         const end = endTimeInput.value; // HH:MM (24-hour)
+        const course = courseSelect.value; // All | Highlands | Fairways | Meadows
 
-        if (!date || !start || !end) {
+        if (!date || !start || !end || !course) {
             showMessage("Please fill in all fields.", "error");
             return;
         }
@@ -132,9 +135,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const encodedDate = encodeURIComponent(apiDate);
         const encodedStart = encodeURIComponent(apiStart);
         const encodedEnd = encodeURIComponent(apiEnd);
+        const encodedCourse = encodeURIComponent(course);
 
         try {
-            const url = `${API_BASE_URL}/set?date=${encodedDate}&start=${encodedStart}&end=${encodedEnd}`;
+            const url = `${API_BASE_URL}/set?date=${encodedDate}&start=${encodedStart}&end=${encodedEnd}&course=${encodedCourse}`;
             showMessage("Updating config...", ""); // Clear previous message
             const response = await fetch(url);
             const data = await response.json();

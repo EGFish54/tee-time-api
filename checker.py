@@ -204,33 +204,55 @@ def select_date_on_calendar(iframe, page, check_day):
     iframe.wait_for_selector("div.member_sheet_table", state='visible', timeout=60000)
     logging.info("✅ Tee sheet table visible after date selection.")
 
-def set_course_to_all(iframe, page):
-    """Set course dropdown to '-ALL-'"""
-    logging.info("🎯 Attempting to set course to '-ALL-'.")
+def set_course(iframe, page, course="All"):
+    """Set the course dropdown to the requested course ('All', 'Highlands', 'Fairways', 'Meadows')"""
+    is_all = not course or course.strip().lower() in ("all", "-all-")
+    logging.info(f"🎯 Attempting to set course to '{'-ALL-' if is_all else course}'.")
     time.sleep(2)  # Wait for dropdown to be ready
-    
+
     course_selected = False
     select_elements = iframe.query_selector_all("select")
-    
+
     for select_el_handle in select_elements:
         try:
             select_html = select_el_handle.evaluate("node => node.outerHTML")
-            if "-ALL-" in select_html:
+            if "-ALL-" not in select_html:
+                continue
+
+            if is_all:
                 select_el_handle.select_option(label="-ALL-")
                 logging.info("✅ Course set to '-ALL-'.")
                 course_selected = True
                 break
+
+            # Find the option whose visible text matches the requested course
+            options = select_el_handle.query_selector_all("option")
+            target_label = None
+            for option in options:
+                option_text = option.evaluate("node => node.textContent").strip()
+                if option_text.lower() == course.strip().lower() or course.strip().lower() in option_text.lower():
+                    target_label = option_text
+                    break
+
+            if target_label:
+                select_el_handle.select_option(label=target_label)
+                logging.info(f"✅ Course set to '{target_label}'.")
+                course_selected = True
+            else:
+                available = [o.evaluate("node => node.textContent").strip() for o in options]
+                logging.warning(f"⚠️ Course '{course}' not found among options: {available}")
+            break
         except Exception as select_e:
             logging.warning(f"⚠️ Could not process select element: {select_e}")
-    
+
     if not course_selected:
-        logging.warning("⚠️ '-ALL-' course option not found.")
-        take_screenshot(page, "course_all_not_found_robust_search")
+        logging.warning(f"⚠️ Course option '{course}' not found.")
+        take_screenshot(page, "course_select_not_found")
     else:
         iframe.wait_for_load_state("networkidle", timeout=90000)
         time.sleep(3)  # Wait for tee times to reload
-        take_screenshot(page, "after_course_select_robust_search")
-    
+        take_screenshot(page, "after_course_select")
+
     return course_selected
 
 def parse_tee_times(iframe, page, start_time, end_time):
@@ -309,15 +331,15 @@ def handle_results(found_times):
     
     return found_times
 
-def check_tee_times(date_str, start_time_str, end_time_str):
+def check_tee_times(date_str, start_time_str, end_time_str, course="All"):
     """Main function to check tee times with improved error handling and concurrency control"""
-    
+
     # Prevent concurrent runs
     if not scraper_lock.acquire(blocking=False):
         logging.warning("⚠️ Scraper already running, skipping this run")
         return ["Scraper is already running. Please wait for it to complete."]
-    
-    logging.info(f"🚀 Starting check for date: {date_str}, {start_time_str}-{end_time_str}")
+
+    logging.info(f"🚀 Starting check for date: {date_str}, {start_time_str}-{end_time_str}, course: {course}")
     browser = None
     page = None
     
@@ -370,8 +392,8 @@ def check_tee_times(date_str, start_time_str, end_time_str):
             # Step 5: Select date
             select_date_on_calendar(iframe, page, CHECK_DAY)
             
-            # Step 6: Set course to ALL
-            set_course_to_all(iframe, page)
+            # Step 6: Set course filter
+            set_course(iframe, page, course)
             
             # Step 7: Parse tee times
             found_times = parse_tee_times(iframe, page, START_TIME, END_TIME)

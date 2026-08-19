@@ -31,8 +31,11 @@ DEFAULT_CONFIG = {
     "date": "07/23/2025",
     "start": "08:00 AM",
     "end": "09:00 AM",
+    "course": "All",
     "is_paused": False
 }
+
+VALID_COURSES = {"All", "Highlands", "Fairways", "Meadows"}
 
 # In-memory configuration
 in_memory_config = DEFAULT_CONFIG.copy()
@@ -47,7 +50,11 @@ if os.path.exists(RUNTIME_CONFIG_FILE):
             # Ensure 'is_paused' exists
             if "is_paused" not in in_memory_config:
                 in_memory_config["is_paused"] = DEFAULT_CONFIG["is_paused"]
-            
+
+            # Ensure 'course' exists
+            if "course" not in in_memory_config:
+                in_memory_config["course"] = DEFAULT_CONFIG["course"]
+
             logging.info(f"✅ Loaded config from {RUNTIME_CONFIG_FILE}: {in_memory_config}")
     except json.JSONDecodeError:
         logging.warning(f"⚠️ Error decoding JSON from {RUNTIME_CONFIG_FILE}. Using default config.")
@@ -69,14 +76,18 @@ def root():
     }
 
 @app.get("/set")
-def set_config(date: str = Query(...), start: str = Query(...), end: str = Query(...)):
+def set_config(date: str = Query(...), start: str = Query(...), end: str = Query(...), course: str = Query("All")):
     """Update scraper configuration"""
     global in_memory_config
-    
+
+    if course not in VALID_COURSES:
+        return {"error": f"Invalid course '{course}'. Must be one of: {', '.join(sorted(VALID_COURSES))}"}
+
     in_memory_config["date"] = date
     in_memory_config["start"] = start
     in_memory_config["end"] = end
-    
+    in_memory_config["course"] = course
+
     try:
         with open(RUNTIME_CONFIG_FILE, "w") as f:
             json.dump(in_memory_config, f, indent=2)
@@ -103,7 +114,11 @@ def get_config():
                 # Ensure 'is_paused' is included
                 if "is_paused" not in current_saved_config:
                     current_saved_config["is_paused"] = DEFAULT_CONFIG["is_paused"]
-                
+
+                # Ensure 'course' is included
+                if "course" not in current_saved_config:
+                    current_saved_config["course"] = DEFAULT_CONFIG["course"]
+
                 return {"current_config": current_saved_config}
         except Exception as e:
             logging.error(f"❌ Failed to load runtime config for /get endpoint: {e}")
@@ -140,19 +155,21 @@ def run_scraper_endpoint(background_tasks: BackgroundTasks):
     current_date = in_memory_config["date"]
     current_start = in_memory_config["start"]
     current_end = in_memory_config["end"]
-    
-    logging.info(f"🚀 Triggered scraper run with config: Date={current_date}, Start={current_start}, End={current_end}")
-    
+    current_course = in_memory_config.get("course", DEFAULT_CONFIG["course"])
+
+    logging.info(f"🚀 Triggered scraper run with config: Date={current_date}, Start={current_start}, End={current_end}, Course={current_course}")
+
     # Run scraper in background using FastAPI's BackgroundTasks
     # This is safer than threading.Thread as it integrates with FastAPI's lifecycle
-    background_tasks.add_task(run_scraper, current_date, current_start, current_end)
-    
+    background_tasks.add_task(run_scraper, current_date, current_start, current_end, current_course)
+
     return {
         "message": "Scraper started in background",
         "config": {
             "date": current_date,
             "start": current_start,
-            "end": current_end
+            "end": current_end,
+            "course": current_course
         }
     }
 
