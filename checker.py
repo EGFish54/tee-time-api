@@ -468,16 +468,15 @@ def check_tee_times(searches):
             # Step 2: Handle member area button
             handle_member_area_button(page)
 
-            # Step 3: Navigate to tee sheet
-            navigate_to_tee_sheet(page)
-
-            # Step 4: Wait for iframe
-            iframe = wait_for_iframe(page)
-
-            # Steps 5-7: For each search entry, select date, set course, and parse tee times
+            # Steps 3-7: For each search entry, load a fresh tee sheet view, select date,
+            # set course, and parse tee times. Selecting a course filter can navigate the
+            # iframe away from the date picker, so each entry starts from a clean page load
+            # rather than reusing the iframe from a previous entry.
             all_found = []
             for date_str, check_day, check_month, check_year, start_time, end_time, course in parsed_entries:
                 logging.info(f"🔎 Checking {date_str} ({start_time}-{end_time}), course: {course}")
+                navigate_to_tee_sheet(page)
+                iframe = wait_for_iframe(page)
                 select_date_on_calendar(iframe, page, check_day, target_month=check_month, target_year=check_year)
                 set_course(iframe, page, course)
                 found_times = parse_tee_times(iframe, page, start_time, end_time)
