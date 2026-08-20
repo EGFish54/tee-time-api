@@ -174,14 +174,73 @@ def wait_for_iframe(page):
     
     return iframe
 
-def select_date_on_calendar(iframe, page, check_day):
-    """Select date on the calendar"""
+def get_calendar_month_year(iframe):
+    """Read the currently displayed month/year from the jQuery UI datepicker header (handles both text and <select> headers)"""
+    calendar = iframe.locator("#member_select_calendar1")
+    month_el = calendar.locator(".ui-datepicker-month").first
+    year_el = calendar.locator(".ui-datepicker-year").first
+
+    def read_el(el):
+        tag = el.evaluate("node => node.tagName").lower()
+        if tag == "select":
+            return el.evaluate("node => node.options[node.selectedIndex].text").strip()
+        return el.text_content().strip()
+
+    month_text = read_el(month_el)
+    year_text = read_el(year_el)
+
+    try:
+        month_num = datetime.strptime(month_text, "%B").month
+    except ValueError:
+        month_num = datetime.strptime(month_text, "%b").month
+    year_num = int("".join(c for c in year_text if c.isdigit()))
+
+    return month_num, year_num
+
+def navigate_calendar_to_month(iframe, page, target_month, target_year):
+    """Click the datepicker's prev/next controls until the displayed month/year matches the target"""
+    max_clicks = 24  # safety cap (2 years worth of months)
+
+    for _ in range(max_clicks):
+        try:
+            current_month, current_year = get_calendar_month_year(iframe)
+        except Exception as e:
+            logging.warning(f"⚠️ Could not read calendar header month/year: {e}")
+            return False
+
+        if current_month == target_month and current_year == target_year:
+            logging.info(f"📅 Calendar already showing {current_month}/{current_year}.")
+            return True
+
+        diff = (target_year - current_year) * 12 + (target_month - current_month)
+        direction = "next" if diff > 0 else "prev"
+        selector = f"#member_select_calendar1 a.ui-datepicker-{direction}"
+
+        logging.info(f"📅 Navigating calendar '{direction}' from {current_month}/{current_year} toward {target_month}/{target_year}.")
+        try:
+            iframe.locator(selector).first.click(timeout=15000)
+        except Exception as e:
+            logging.warning(f"⚠️ Could not click calendar '{direction}' control: {e}")
+            return False
+
+        iframe.wait_for_load_state("networkidle", timeout=60000)
+        time.sleep(1.5)  # allow calendar to re-render
+
+    logging.warning(f"⚠️ Could not navigate calendar to {target_month}/{target_year} after {max_clicks} clicks.")
+    return False
+
+def select_date_on_calendar(iframe, page, check_day, target_month=None, target_year=None):
+    """Select date on the calendar, navigating to the correct month/year first if provided"""
     logging.info(f"📅 Attempting to select date (Day: {check_day})")
-    
+
     iframe.wait_for_selector("#member_select_calendar1", timeout=60000)
     time.sleep(2)  # Let calendar render
     take_screenshot(page, "before_date_selection_in_iframe")
-    
+
+    if target_month is not None and target_year is not None:
+        navigate_calendar_to_month(iframe, page, target_month, target_year)
+        take_screenshot(page, "after_calendar_month_navigation")
+
     logging.info(f"📆 Clicking on target date: {check_day}")
     try:
         iframe.locator(f"td a:has-text('{check_day}')").first.click(timeout=30000)
@@ -298,7 +357,7 @@ def parse_tee_times(iframe, page, start_time, end_time):
     return found
 
 def parse_search_entry(entry):
-    """Parse and validate a single search entry, returning (date_str, check_day, start_time, end_time, course) or raising ValueError"""
+    """Parse and validate a single search entry, returning (date_str, check_day, check_month, check_year, start_time, end_time, course) or raising ValueError"""
     date_str = entry["date"]
     start_time_str = entry["start"]
     end_time_str = entry["end"]
@@ -309,7 +368,7 @@ def parse_search_entry(entry):
     check_date_obj = datetime.strptime(date_str, "%m/%d/%Y")
     check_day = str(check_date_obj.day)
 
-    return date_str, check_day, start_time, end_time, course
+    return date_str, check_day, check_date_obj.month, check_date_obj.year, start_time, end_time, course
 
 def handle_results(found_times):
     """Handle results, check for new times, and send notifications"""
@@ -417,9 +476,9 @@ def check_tee_times(searches):
 
             # Steps 5-7: For each search entry, select date, set course, and parse tee times
             all_found = []
-            for date_str, check_day, start_time, end_time, course in parsed_entries:
+            for date_str, check_day, check_month, check_year, start_time, end_time, course in parsed_entries:
                 logging.info(f"🔎 Checking {date_str} ({start_time}-{end_time}), course: {course}")
-                select_date_on_calendar(iframe, page, check_day)
+                select_date_on_calendar(iframe, page, check_day, target_month=check_month, target_year=check_year)
                 set_course(iframe, page, course)
                 found_times = parse_tee_times(iframe, page, start_time, end_time)
                 all_found.extend(f"{date_str}: {t}" for t in found_times)
