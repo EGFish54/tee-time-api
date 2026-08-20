@@ -1,17 +1,17 @@
 const API_BASE_URL = "https://tee-time-api.onrender.com"; // Your Render API URL
 
 document.addEventListener("DOMContentLoaded", () => {
-    const dateInput = document.getElementById("date");
-    const startTimeInput = document.getElementById("start");
-    const endTimeInput = document.getElementById("end");
-    const courseSelect = document.getElementById("course");
-    const updateButton = document.getElementById("updateButton");
+    const searchRowsContainer = document.getElementById("searchRows");
+    const addRowButton = document.getElementById("addRowButton");
+    const teeTimeForm = document.getElementById("teeTimeForm");
     const messageDiv = document.getElementById("message");
     const currentConfigP = document.getElementById("currentConfig");
 
     // Elements for pause/resume functionality
     const togglePauseButton = document.getElementById("togglePauseButton");
     const scraperStatusP = document.getElementById("scraperStatus");
+
+    let rowCount = 0;
 
     // Helper to convert MM/DD/YYYY to YYYY-MM-DD for date input value
     function convertDateToInputFormat(dateStr) {
@@ -57,6 +57,79 @@ document.addEventListener("DOMContentLoaded", () => {
         return `${h.toString().padStart(2, '0')}:${minutes} ${period}`;
     }
 
+    // Build a single search row (date/start/end/course + remove button)
+    function addSearchRow(entry) {
+        entry = entry || {};
+        rowCount += 1;
+        const rowId = `row-${rowCount}`;
+
+        const row = document.createElement("div");
+        row.className = "search-row";
+        row.dataset.rowId = rowId;
+
+        row.innerHTML = `
+            <div class="row-title">Search ${rowCount}</div>
+            <div class="input-group">
+                <label>Date:</label>
+                <input type="date" class="row-date" required>
+            </div>
+            <div class="input-group">
+                <label>Start Time:</label>
+                <input type="time" class="row-start" required>
+            </div>
+            <div class="input-group">
+                <label>End Time:</label>
+                <input type="time" class="row-end" required>
+            </div>
+            <div class="input-group">
+                <label>Course:</label>
+                <select class="row-course" required>
+                    <option value="All">All</option>
+                    <option value="Highlands">Highlands</option>
+                    <option value="Fairways">Fairways</option>
+                    <option value="Meadows">Meadows</option>
+                </select>
+            </div>
+            <button type="button" class="remove-row-button">Remove</button>
+        `;
+
+        row.querySelector(".row-date").value = convertDateToInputFormat(entry.date);
+        row.querySelector(".row-start").value = convertTimeToInputFormat(entry.start);
+        row.querySelector(".row-end").value = convertTimeToInputFormat(entry.end);
+        row.querySelector(".row-course").value = entry.course || "All";
+
+        row.querySelector(".remove-row-button").addEventListener("click", () => {
+            // Always keep at least one row
+            if (searchRowsContainer.children.length > 1) {
+                row.remove();
+                renumberRows();
+            } else {
+                showMessage("At least one search is required.", "error");
+            }
+        });
+
+        searchRowsContainer.appendChild(row);
+    }
+
+    function renumberRows() {
+        const rows = searchRowsContainer.querySelectorAll(".search-row");
+        rows.forEach((row, index) => {
+            row.querySelector(".row-title").textContent = `Search ${index + 1}`;
+        });
+    }
+
+    function renderSearchRows(searches) {
+        searchRowsContainer.innerHTML = "";
+        rowCount = 0;
+        if (!searches || searches.length === 0) {
+            addSearchRow();
+        } else {
+            searches.forEach(entry => addSearchRow(entry));
+        }
+    }
+
+    addRowButton.addEventListener("click", () => addSearchRow());
+
     // Function to fetch and display current config (updated to include pause status)
     async function fetchCurrentConfig() {
         try {
@@ -64,23 +137,26 @@ document.addEventListener("DOMContentLoaded", () => {
             const data = await response.json();
             if (response.ok) {
                 const config = data.current_config;
-                currentConfigP.textContent = `Date: ${config.date}\nStart: ${config.start}\nEnd: ${config.end}\nCourse: ${config.course || 'All'}`;
-                // Pre-fill input fields with current values, converting to input format
-                dateInput.value = convertDateToInputFormat(config.date);
-                startTimeInput.value = convertTimeToInputFormat(config.start);
-                endTimeInput.value = convertTimeToInputFormat(config.end);
-                courseSelect.value = config.course || 'All';
+                const searches = config.searches || [];
+
+                currentConfigP.textContent = searches.map((s, i) =>
+                    `Search ${i + 1} - Date: ${s.date}, Start: ${s.start}, End: ${s.end}, Course: ${s.course || 'All'}`
+                ).join('\n');
+
+                renderSearchRows(searches);
 
                 // Update pause/resume button and status
                 updatePauseStatus(config.is_paused);
             } else {
                 currentConfigP.textContent = `Error fetching config: ${data.error || 'Unknown error'}`;
+                renderSearchRows();
                 // Handle error for pause status as well
                 updatePauseStatus(false, true); // Assume not paused, show error
             }
         } catch (error) {
             currentConfigP.textContent = `Network error fetching config: ${error.message}`;
             console.error("Error fetching current config:", error);
+            renderSearchRows();
             // Handle network error for pause status
             updatePauseStatus(false, true); // Assume not paused, show error
         }
@@ -111,39 +187,42 @@ document.addEventListener("DOMContentLoaded", () => {
         togglePauseButton.disabled = false; // Enable button once status is known
     }
 
-    // Function to handle update button click
-    updateButton.addEventListener("click", async (event) => {
+    // Function to handle form submission
+    teeTimeForm.addEventListener("submit", async (event) => {
         event.preventDefault(); // Stop the page from reloading
 
-        // Get values from input fields (these will be in the new formats)
-        const date = dateInput.value; // YYYY-MM-DD
-        const start = startTimeInput.value; // HH:MM (24-hour)
-        const end = endTimeInput.value; // HH:MM (24-hour)
-        const course = courseSelect.value; // All | Highlands | Fairways | Meadows
+        const rows = searchRowsContainer.querySelectorAll(".search-row");
+        const searches = [];
 
-        if (!date || !start || !end || !course) {
-            showMessage("Please fill in all fields.", "error");
-            return;
+        for (const row of rows) {
+            const date = row.querySelector(".row-date").value; // YYYY-MM-DD
+            const start = row.querySelector(".row-start").value; // HH:MM (24-hour)
+            const end = row.querySelector(".row-end").value; // HH:MM (24-hour)
+            const course = row.querySelector(".row-course").value;
+
+            if (!date || !start || !end || !course) {
+                showMessage("Please fill in all fields for every search.", "error");
+                return;
+            }
+
+            searches.push({
+                date: convertDateToApiFormat(date),
+                start: convertTimeToApiFormat(start),
+                end: convertTimeToApiFormat(end),
+                course: course
+            });
         }
 
-        // Convert values to API expected format (MM/DD/YYYY and HH:MM AM/PM)
-        const apiDate = convertDateToApiFormat(date);
-        const apiStart = convertTimeToApiFormat(start);
-        const apiEnd = convertTimeToApiFormat(end);
-
-        // Encode parameters for URL
-        const encodedDate = encodeURIComponent(apiDate);
-        const encodedStart = encodeURIComponent(apiStart);
-        const encodedEnd = encodeURIComponent(apiEnd);
-        const encodedCourse = encodeURIComponent(course);
-
         try {
-            const url = `${API_BASE_URL}/set?date=${encodedDate}&start=${encodedStart}&end=${encodedEnd}&course=${encodedCourse}`;
             showMessage("Updating config...", ""); // Clear previous message
-            const response = await fetch(url);
+            const response = await fetch(`${API_BASE_URL}/set`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ searches })
+            });
             const data = await response.json();
 
-            if (response.ok) {
+            if (response.ok && !data.error) {
                 showMessage(data.message || "Config updated successfully!", "success");
                 fetchCurrentConfig(); // Refresh current config display
             } else {

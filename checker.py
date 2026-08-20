@@ -297,6 +297,20 @@ def parse_tee_times(iframe, page, start_time, end_time):
     logging.info(f"✅ Found {len(found)} available tee times in time range.")
     return found
 
+def parse_search_entry(entry):
+    """Parse and validate a single search entry, returning (date_str, check_day, start_time, end_time, course) or raising ValueError"""
+    date_str = entry["date"]
+    start_time_str = entry["start"]
+    end_time_str = entry["end"]
+    course = entry.get("course", "All")
+
+    start_time = datetime.strptime(start_time_str, "%I:%M %p").time()
+    end_time = datetime.strptime(end_time_str, "%I:%M %p").time()
+    check_date_obj = datetime.strptime(date_str, "%m/%d/%Y")
+    check_day = str(check_date_obj.day)
+
+    return date_str, check_day, start_time, end_time, course
+
 def handle_results(found_times):
     """Handle results, check for new times, and send notifications"""
     previous = []
@@ -331,35 +345,47 @@ def handle_results(found_times):
     
     return found_times
 
-def check_tee_times(date_str, start_time_str, end_time_str, course="All"):
-    """Main function to check tee times with improved error handling and concurrency control"""
+def check_tee_times(searches):
+    """Main function to check tee times across one or more date/time/course searches.
+
+    `searches` is a list of dicts: [{"date": "MM/DD/YYYY", "start": "H:MM AM", "end": "H:MM AM", "course": "All"}, ...]
+    A single browser session (one login) is reused across all entries.
+    """
 
     # Prevent concurrent runs
     if not scraper_lock.acquire(blocking=False):
         logging.warning("⚠️ Scraper already running, skipping this run")
         return ["Scraper is already running. Please wait for it to complete."]
 
-    logging.info(f"🚀 Starting check for date: {date_str}, {start_time_str}-{end_time_str}, course: {course}")
+    if not searches:
+        logging.error("❌ No search entries provided.")
+        scraper_lock.release()
+        return ["Error: No search configuration provided."]
+
+    logging.info(f"🚀 Starting check for {len(searches)} search(es): {searches}")
     browser = None
     page = None
-    
+
     try:
         # Validate credentials
         if not USERNAME or not PASSWORD:
             error_msg = "Prestonwood login credentials not set as environment variables."
             logging.error(error_msg)
             return [error_msg]
-        
-        # Parse configuration
-        try:
-            START_TIME = datetime.strptime(start_time_str, "%I:%M %p").time()
-            END_TIME = datetime.strptime(end_time_str, "%I:%M %p").time()
-            check_date_obj = datetime.strptime(date_str, "%m/%d/%Y")
-            CHECK_DAY = str(check_date_obj.day)
-        except ValueError as e:
-            logging.error(f"❌ Configuration parsing error: {e}")
-            return [f"Error: Invalid date/time format: {e}"]
-        
+
+        # Pre-validate all entries up front so a bad entry doesn't waste a login
+        parsed_entries = []
+        parse_errors = []
+        for entry in searches:
+            try:
+                parsed_entries.append(parse_search_entry(entry))
+            except (ValueError, KeyError) as e:
+                logging.error(f"❌ Invalid search entry {entry}: {e}")
+                parse_errors.append(f"Error: Invalid search entry {entry}: {e}")
+
+        if not parsed_entries:
+            return parse_errors or ["Error: No valid search entries provided."]
+
         # Launch browser
         with sync_playwright() as p:
             browser = p.chromium.launch(
@@ -373,39 +399,41 @@ def check_tee_times(date_str, start_time_str, end_time_str, course="All"):
                     '--disable-blink-features=AutomationControlled'
                 ]
             )
-            
+
             page = browser.new_page()
             page.set_default_timeout(60000)
-            
+
             # Step 1: Login
             perform_login(page)
-            
+
             # Step 2: Handle member area button
             handle_member_area_button(page)
-            
+
             # Step 3: Navigate to tee sheet
             navigate_to_tee_sheet(page)
-            
+
             # Step 4: Wait for iframe
             iframe = wait_for_iframe(page)
-            
-            # Step 5: Select date
-            select_date_on_calendar(iframe, page, CHECK_DAY)
-            
-            # Step 6: Set course filter
-            set_course(iframe, page, course)
-            
-            # Step 7: Parse tee times
-            found_times = parse_tee_times(iframe, page, START_TIME, END_TIME)
-            
+
+            # Steps 5-7: For each search entry, select date, set course, and parse tee times
+            all_found = []
+            for date_str, check_day, start_time, end_time, course in parsed_entries:
+                logging.info(f"🔎 Checking {date_str} ({start_time}-{end_time}), course: {course}")
+                select_date_on_calendar(iframe, page, check_day)
+                set_course(iframe, page, course)
+                found_times = parse_tee_times(iframe, page, start_time, end_time)
+                all_found.extend(f"{date_str}: {t}" for t in found_times)
+
+            all_found.extend(parse_errors)
+
             # Step 8: Handle results
-            result = handle_results(found_times)
-            
+            result = handle_results(all_found)
+
             # Close browser before releasing lock
             browser.close()
             browser = None
             logging.info("🔚 Browser closed successfully.")
-            
+
             return result
     
     except PlaywrightTimeoutError as e:

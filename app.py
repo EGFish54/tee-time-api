@@ -1,6 +1,8 @@
-from fastapi import FastAPI, Query, BackgroundTasks
+from fastapi import FastAPI, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
-from checker import check_tee_times, get_cached_tee_times
+from pydantic import BaseModel
+from typing import List
+from checker import get_cached_tee_times
 import subprocess
 import os
 import json
@@ -9,7 +11,7 @@ from scraper import run_scraper
 
 # Configure logging for app.py
 logging.basicConfig(
-    level=logging.INFO, 
+    level=logging.INFO,
     format="%(asctime)s - %(message)s"
 )
 
@@ -26,16 +28,35 @@ RUNTIME_CONFIG_FILE = "current_config.json"
 # Ensure the directory exists
 os.makedirs(os.path.dirname(RUNTIME_CONFIG_FILE) or '.', exist_ok=True)
 
+VALID_COURSES = {"All", "Highlands", "Fairways", "Meadows"}
+
 # Default configuration
 DEFAULT_CONFIG = {
-    "date": "07/23/2025",
-    "start": "08:00 AM",
-    "end": "09:00 AM",
-    "course": "All",
+    "searches": [
+        {"date": "07/23/2025", "start": "08:00 AM", "end": "09:00 AM", "course": "All"}
+    ],
     "is_paused": False
 }
 
-VALID_COURSES = {"All", "Highlands", "Fairways", "Meadows"}
+def normalize_config(config):
+    """Ensure config has a 'searches' list and 'is_paused' flag, migrating legacy single-entry configs."""
+    normalized = dict(config)
+
+    if "searches" not in normalized:
+        if all(k in normalized for k in ("date", "start", "end")):
+            normalized["searches"] = [{
+                "date": normalized.pop("date"),
+                "start": normalized.pop("start"),
+                "end": normalized.pop("end"),
+                "course": normalized.pop("course", "All")
+            }]
+        else:
+            normalized["searches"] = DEFAULT_CONFIG["searches"]
+
+    if "is_paused" not in normalized:
+        normalized["is_paused"] = DEFAULT_CONFIG["is_paused"]
+
+    return normalized
 
 # In-memory configuration
 in_memory_config = DEFAULT_CONFIG.copy()
@@ -45,16 +66,7 @@ if os.path.exists(RUNTIME_CONFIG_FILE):
     try:
         with open(RUNTIME_CONFIG_FILE, "r") as f:
             loaded_config = json.load(f)
-            in_memory_config.update(loaded_config)
-            
-            # Ensure 'is_paused' exists
-            if "is_paused" not in in_memory_config:
-                in_memory_config["is_paused"] = DEFAULT_CONFIG["is_paused"]
-
-            # Ensure 'course' exists
-            if "course" not in in_memory_config:
-                in_memory_config["course"] = DEFAULT_CONFIG["course"]
-
+            in_memory_config = normalize_config(loaded_config)
             logging.info(f"✅ Loaded config from {RUNTIME_CONFIG_FILE}: {in_memory_config}")
     except json.JSONDecodeError:
         logging.warning(f"⚠️ Error decoding JSON from {RUNTIME_CONFIG_FILE}. Using default config.")
@@ -67,6 +79,15 @@ app = FastAPI(title="Tee Time Checker API", version="1.0.0")
 # Mount static files
 app.mount("/static", StaticFiles(directory="static", html=True), name="static")
 
+class SearchEntry(BaseModel):
+    date: str
+    start: str
+    end: str
+    course: str = "All"
+
+class SearchesPayload(BaseModel):
+    searches: List[SearchEntry]
+
 @app.get("/")
 def root():
     """API root - health check"""
@@ -75,18 +96,19 @@ def root():
         "message": "Tee Time API is live. Access UI at /static/index.html or /static/"
     }
 
-@app.get("/set")
-def set_config(date: str = Query(...), start: str = Query(...), end: str = Query(...), course: str = Query("All")):
-    """Update scraper configuration"""
+@app.post("/set")
+def set_config(payload: SearchesPayload):
+    """Update scraper configuration with one or more date/time/course searches"""
     global in_memory_config
 
-    if course not in VALID_COURSES:
-        return {"error": f"Invalid course '{course}'. Must be one of: {', '.join(sorted(VALID_COURSES))}"}
+    if not payload.searches:
+        return {"error": "At least one search entry is required."}
 
-    in_memory_config["date"] = date
-    in_memory_config["start"] = start
-    in_memory_config["end"] = end
-    in_memory_config["course"] = course
+    for entry in payload.searches:
+        if entry.course not in VALID_COURSES:
+            return {"error": f"Invalid course '{entry.course}'. Must be one of: {', '.join(sorted(VALID_COURSES))}"}
+
+    in_memory_config["searches"] = [entry.model_dump() for entry in payload.searches]
 
     try:
         with open(RUNTIME_CONFIG_FILE, "w") as f:
@@ -109,16 +131,7 @@ def get_config():
     if os.path.exists(RUNTIME_CONFIG_FILE):
         try:
             with open(RUNTIME_CONFIG_FILE, "r") as f:
-                current_saved_config = json.load(f)
-                
-                # Ensure 'is_paused' is included
-                if "is_paused" not in current_saved_config:
-                    current_saved_config["is_paused"] = DEFAULT_CONFIG["is_paused"]
-
-                # Ensure 'course' is included
-                if "course" not in current_saved_config:
-                    current_saved_config["course"] = DEFAULT_CONFIG["course"]
-
+                current_saved_config = normalize_config(json.load(f))
                 return {"current_config": current_saved_config}
         except Exception as e:
             logging.error(f"❌ Failed to load runtime config for /get endpoint: {e}")
@@ -143,7 +156,7 @@ def run_scraper_endpoint(background_tasks: BackgroundTasks):
     Uses FastAPI's BackgroundTasks for better concurrency control.
     """
     global in_memory_config
-    
+
     # Check if scraper is paused
     if in_memory_config.get("is_paused", False):
         logging.info("⏸️ Scraper is currently paused. Not starting a new run.")
@@ -151,25 +164,19 @@ def run_scraper_endpoint(background_tasks: BackgroundTasks):
             "message": "Scraper is currently paused.",
             "is_paused": True
         }
-    
-    current_date = in_memory_config["date"]
-    current_start = in_memory_config["start"]
-    current_end = in_memory_config["end"]
-    current_course = in_memory_config.get("course", DEFAULT_CONFIG["course"])
 
-    logging.info(f"🚀 Triggered scraper run with config: Date={current_date}, Start={current_start}, End={current_end}, Course={current_course}")
+    current_searches = in_memory_config.get("searches", DEFAULT_CONFIG["searches"])
+
+    logging.info(f"🚀 Triggered scraper run with {len(current_searches)} search(es): {current_searches}")
 
     # Run scraper in background using FastAPI's BackgroundTasks
     # This is safer than threading.Thread as it integrates with FastAPI's lifecycle
-    background_tasks.add_task(run_scraper, current_date, current_start, current_end, current_course)
+    background_tasks.add_task(run_scraper, current_searches)
 
     return {
         "message": "Scraper started in background",
         "config": {
-            "date": current_date,
-            "start": current_start,
-            "end": current_end,
-            "course": current_course
+            "searches": current_searches
         }
     }
 
@@ -177,18 +184,18 @@ def run_scraper_endpoint(background_tasks: BackgroundTasks):
 def toggle_scraper_pause():
     """Toggle the scraper pause state"""
     global in_memory_config
-    
+
     current_state = in_memory_config.get("is_paused", False)
     new_state = not current_state
     in_memory_config["is_paused"] = new_state
-    
+
     try:
         with open(RUNTIME_CONFIG_FILE, "w") as f:
             json.dump(in_memory_config, f, indent=2)
-        
+
         status_message = "paused" if new_state else "resumed"
         logging.info(f"✅ Scraper {status_message}. New state saved: {in_memory_config}")
-        
+
         return {
             "message": f"Scraper has been {status_message}.",
             "is_paused": new_state,

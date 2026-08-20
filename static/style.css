@@ -89,6 +89,60 @@ button:hover {
     word-wrap: break-word; /* Break long words */
 }
 
+.search-row {
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 15px;
+    margin-bottom: 15px;
+    position: relative;
+    background-color: #fafafa;
+}
+
+.search-row .row-title {
+    font-weight: bold;
+    margin-bottom: 10px;
+    color: #0056b3;
+}
+
+select {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-sizing: border-box;
+    font-size: 16px;
+}
+
+input[type="date"],
+input[type="time"] {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-sizing: border-box;
+    font-size: 16px;
+}
+
+.remove-row-button {
+    background-color: #dc3545;
+    width: auto;
+    padding: 6px 12px;
+    font-size: 14px;
+    margin-top: 0;
+}
+
+.remove-row-button:hover {
+    background-color: #a71d2a;
+}
+
+.secondary-button {
+    background-color: #6c757d;
+}
+
+.secondary-button:hover {
+    background-color: #545b62;
+}
+
 /* NEW: Styles for Pause/Resume button states */
 button.bg-green-600 {
     background-color: #28a745; /* A nice green */

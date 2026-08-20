@@ -8,36 +8,12 @@
 </head>
 <body>
     <div class="container">
-        <h1>Set Tee Time Window</h1>
+        <h1>Set Tee Time Search(es)</h1>
 
         <form id="teeTimeForm">
-            <div class="input-group">
-                <label for="date">Date:</label>
-                <!-- Changed type to 'date' for calendar picker -->
-                <input type="date" id="date" name="date" required>
-            </div>
+            <div id="searchRows"></div>
 
-            <div class="input-group">
-                <label for="start">Start Time:</label>
-                <!-- Changed type to 'time' for time picker -->
-                <input type="time" id="start" name="start" required>
-            </div>
-
-            <div class="input-group">
-                <label for="end">End Time:</label>
-                <!-- Changed type to 'time' for time picker -->
-                <input type="time" id="end" name="end" required>
-            </div>
-
-            <div class="input-group">
-                <label for="course">Course:</label>
-                <select id="course" name="course" required>
-                    <option value="All">All</option>
-                    <option value="Highlands">Highlands</option>
-                    <option value="Fairways">Fairways</option>
-                    <option value="Meadows">Meadows</option>
-                </select>
-            </div>
+            <button id="addRowButton" type="button" class="secondary-button">+ Add Another Day</button>
 
             <button id="updateButton" type="submit">Update Config</button>
         </form>
