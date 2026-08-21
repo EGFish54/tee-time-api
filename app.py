@@ -9,6 +9,14 @@ import json
 import logging
 from scraper import run_scraper
 
+class NoCacheStaticFiles(StaticFiles):
+    """Static files served with Cache-Control: no-cache so browsers always revalidate
+    with the server (via ETag) instead of silently reusing a stale cached copy."""
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
+
 # Configure logging for app.py
 logging.basicConfig(
     level=logging.INFO,
@@ -77,7 +85,7 @@ if os.path.exists(RUNTIME_CONFIG_FILE):
 app = FastAPI(title="Tee Time Checker API", version="1.0.0")
 
 # Mount static files
-app.mount("/static", StaticFiles(directory="static", html=True), name="static")
+app.mount("/static", NoCacheStaticFiles(directory="static", html=True), name="static")
 
 class SearchEntry(BaseModel):
     date: str
