@@ -3,11 +3,8 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 import os
 import logging
-import smtplib
 import json
 import requests
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 import time
 import threading
 from functools import wraps
@@ -39,11 +36,6 @@ logging.basicConfig(
 # Ensure screenshot directory exists
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
-# Email setup
-GMAIL_USER = os.getenv("GMAIL_USER")
-GMAIL_PASS = os.getenv("GMAIL_PASS")
-RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL")
-
 # Global lock to prevent concurrent scraper runs
 scraper_lock = threading.Lock()
 
@@ -65,37 +57,31 @@ def retry_on_failure(max_attempts=3, delay=5):
         return wrapper
     return decorator
 
-def send_email(subject, body):
-    """Send email using Gmail SMTP with App Password"""
-    
-    # Get Gmail credentials from environment
-    gmail_user = os.getenv("GMAIL_USER")
-    gmail_app_password = os.getenv("GMAIL_APP_PASSWORD")
-    
-    if not gmail_user or not gmail_app_password:
-        logging.error("Gmail credentials not set. Cannot send email.")
+def send_alert(title, body):
+    """Send a push notification to the phone via ntfy (https://ntfy.sh)."""
+    topic = os.getenv("NTFY_TOPIC")
+
+    if not topic:
+        logging.error("NTFY_TOPIC not set. Cannot send alert.")
         return
-    
-    # Send only to SMS gateway
-    recipient = "9196010286@vtext.com"
-    
-    msg = MIMEMultipart()
-    msg['From'] = gmail_user
-    msg['To'] = recipient
-    msg['Subject'] = subject
-    msg.attach(MIMEText(body, 'plain'))
-    
+
     try:
-        # Use Gmail's SMTP server on port 587
-        with smtplib.SMTP('smtp.gmail.com', 587, timeout=30) as server:
-            server.starttls()  # Upgrade connection to secure
-            server.login(gmail_user, gmail_app_password)
-            server.sendmail(gmail_user, [recipient], msg.as_string())
-        logging.info("📧 SMS notification sent successfully via Gmail!")
-    except smtplib.SMTPException as e:
-        logging.error(f"❌ SMTP error sending SMS: {e}")
-    except Exception as e:
-        logging.error(f"❌ Failed to send SMS: {e}")
+        # The topic goes in the JSON body so it stays out of URLs and error logs.
+        response = requests.post(
+            "https://ntfy.sh/",
+            json={
+                "topic": topic,
+                "title": title,
+                "message": body,
+                "priority": 4,
+                "tags": ["golf"],
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        logging.info("📲 Push alert sent via ntfy.")
+    except requests.RequestException as e:
+        logging.error(f"❌ Failed to send ntfy alert: {type(e).__name__}: {e}")
 
 def take_screenshot(page, name):
     """Take screenshot with extended timeout and better error handling"""
@@ -398,7 +384,7 @@ def handle_results(found_times):
         logging.info("🎉 New tee times found:\n" + "\n".join(new_times))
         with open(LOG_FILE, "w") as f:
             f.write("\n".join(found_times))
-        send_email("New Tee Times Available", "\n".join(new_times))
+        send_alert("New Tee Times Available", "\n".join(new_times))
     else:
         logging.info("🟢 No new tee times found (or no changes since last check).")
     
